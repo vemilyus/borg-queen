@@ -16,7 +16,6 @@
 package vault
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"errors"
@@ -47,12 +46,12 @@ type Item struct {
 }
 
 type Vault struct {
+	lock              sync.RWMutex
 	options           *Options
 	identityPath      string
 	identityKey       *memguard.Enclave
 	primaryRecipient  *age.X25519Recipient
 	recoveryRecipient *age.X25519Recipient
-	lock              sync.RWMutex
 	items             map[uuid.UUID]Item
 }
 
@@ -82,14 +81,19 @@ func NewVault(options *Options) (*Vault, error) {
 		return nil, fmt.Errorf("failed to load recovery recipient (%s): %v", recoveryRecipientPath, err)
 	}
 
+	items, err := readAllMetadataUnsafe(options.StoragePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read items metadata: %v", err)
+	}
+
 	return &Vault{
+		lock:              sync.RWMutex{},
 		options:           options,
 		identityPath:      filepath.Join(options.StoragePath, ".identity"),
 		identityKey:       nil,
 		primaryRecipient:  nil,
 		recoveryRecipient: recoveryRecipient,
-		lock:              sync.RWMutex{},
-		items:             map[uuid.UUID]Item{},
+		items:             items,
 	}, nil
 }
 
@@ -103,6 +107,7 @@ func (v *Vault) Unlock(passphrase string) error {
 
 	passphraseBytes := *(*[]byte)(unsafe.Pointer(&passphrase))
 	rawSum := sha256.Sum256(passphraseBytes)
+	memguard.WipeBytes(passphraseBytes)
 
 	v.identityKey = func() *memguard.Enclave {
 		defer wipeSum(rawSum)
@@ -145,13 +150,6 @@ func (v *Vault) Unlock(passphrase string) error {
 		log.Errorf("failed to stat identity file: %v", err)
 		return errors.New("failed to verify passphrase")
 	}
-
-	items, err := readAllMetadataUnsafe(v.options.StoragePath)
-	if err != nil {
-		return fmt.Errorf("failed to load item metadata: %v", err)
-	}
-
-	v.items = items
 
 	return nil
 }
@@ -350,14 +348,16 @@ func (v *Vault) writeItemValueUnsafe(item Item, value *memguard.LockedBuffer) er
 
 	valuePath := v.valuePath(item)
 
+	if item.Checksum != "" {
+		backupPath := v.backupPath(item)
+		if err := copyFile(valuePath, backupPath); err != nil {
+			return fmt.Errorf("failed to create backup of previous value (%s): %v", item.Id, err)
+		}
+	}
+
 	checksum := sum(value.Bytes())
 	item.Checksum = checksum
 	item.ModifiedAt = time.Now()
-
-	backupPath := v.backupPath(item)
-	if err := copyFile(valuePath, backupPath); err != nil {
-		return fmt.Errorf("failed to create backup of previous value (%s): %v", item.Id, err)
-	}
 
 	err = os.WriteFile(valuePath, ageBytes, 0600)
 	if err != nil {
@@ -417,7 +417,7 @@ func (v *Vault) decryptFromRestUnsafe(data []byte) (*memguard.LockedBuffer, erro
 
 	identity, err := readIdentity(v.identityPath, identityKey)
 	if err != nil {
-		log.Fatalf("error reading identity: %v", err)
+		log.Errorf("error reading identity: %v", err)
 		return nil, errors.New("failed to decrypt data")
 	}
 
@@ -428,13 +428,15 @@ func (v *Vault) decryptFromRestUnsafe(data []byte) (*memguard.LockedBuffer, erro
 	}
 
 	out := bytes.Buffer{}
+	defer wipeBuffer(out, out.Len())
+
 	if _, err := io.Copy(&out, reader); err != nil {
 		log.Fatalf("error decrypting data: %v", err)
 		return nil, errors.New("failed to decrypt data")
 	}
 
-	result := out.Bytes()[:]
-	wipeBuffer(out, len(result))
+	result := make([]byte, out.Len())
+	copy(result, out.Bytes())
 
 	return memguard.NewBufferFromBytes(result), nil
 }
@@ -446,16 +448,14 @@ func (v *Vault) encryptForRestUnsafe(data *memguard.LockedBuffer) ([]byte, error
 		recipients = append(recipients, v.recoveryRecipient)
 	}
 
-	out := bytes.Buffer{}
-	outWriter := bufio.NewWriter(&out)
-
-	wc, err := age.Encrypt(outWriter, recipients...)
+	out := &bytes.Buffer{}
+	wc, err := age.Encrypt(out, recipients...)
 	if err != nil {
 		log.Fatalf("error encrypting data: %v", err)
 		return nil, errors.New("failed to encrypt data")
 	}
 
-	_, err = wc.Write(data.Bytes())
+	_, err = io.Copy(wc, bytes.NewReader(data.Bytes()))
 	if err != nil {
 		log.Fatalf("error writing data: %v", err)
 		return nil, errors.New("failed to encrypt data")

@@ -119,7 +119,7 @@ func readAllMetadataUnsafe(storagePath string) (map[uuid.UUID]Item, error) {
 		return nil, fmt.Errorf("error reading directory: %w", err)
 	}
 
-	var items map[uuid.UUID]Item
+	items := make(map[uuid.UUID]Item)
 
 	for _, entry := range listing {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
