@@ -13,9 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-package state
+package service
 
 import (
+	"github.com/vemilyus/borg-queen/credentials/internal/model"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
 )
@@ -36,18 +37,17 @@ func NewState(config *store.Config, vault *vault.Vault, version string, prod boo
 	}
 }
 
-func (s State) Config() *store.Config {
+func (s *State) Config() *store.Config {
 	return s.config
 }
 
-func (s State) Vault() *vault.Vault {
-	return s.vault
-}
-
-func (s State) Version() string {
-	return s.version
-}
-
-func (s State) IsProduction() bool {
+func (s *State) IsProduction() bool {
 	return s.isProduction
+}
+
+func (s *State) GetVersion() model.VersionResponse {
+	return model.VersionResponse{
+		Version:      s.version,
+		IsProduction: s.isProduction,
+	}
 }

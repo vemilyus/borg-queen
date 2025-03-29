@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,8 +28,8 @@ import (
 	"filippo.io/age"
 	"fmt"
 	"github.com/awnumar/memguard"
-	"github.com/gofiber/fiber/v2/log"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"io"
 	"os"
 	"path/filepath"
@@ -84,6 +85,15 @@ func readIdentity(identityFile string, identityKey *memguard.LockedBuffer) (*age
 	return age.ParseX25519Identity(*(*string)(unsafe.Pointer(&rawIdentity)))
 }
 
+func deriveMetadataHmacSecret(identity age.X25519Identity) *memguard.Enclave {
+	identityString := identity.String()
+	identityBytes := []byte(identityString)
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&identityString)))
+	rawHmacSecret := sha256.Sum256(identityBytes)
+
+	return memguard.NewEnclave(rawHmacSecret[:])
+}
+
 func writeIdentity(identityFile string, identityKey *memguard.LockedBuffer, identity *age.X25519Identity) error {
 	identityString := identity.String()
 	identityBytes := *(*[]byte)(unsafe.Pointer(&identityString))
@@ -113,7 +123,7 @@ func writeIdentity(identityFile string, identityKey *memguard.LockedBuffer, iden
 	return os.WriteFile(identityFile, result, 0600)
 }
 
-func readAllMetadataUnsafe(storagePath string) (map[uuid.UUID]Item, error) {
+func readAllMetadataUnsafe(storagePath string, hmacSecret *memguard.LockedBuffer) (map[uuid.UUID]Item, error) {
 	listing, err := os.ReadDir(storagePath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading directory: %w", err)
@@ -123,9 +133,10 @@ func readAllMetadataUnsafe(storagePath string) (map[uuid.UUID]Item, error) {
 
 	for _, entry := range listing {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			metadata, err := readItemMetadataUnsafe(filepath.Join(storagePath, entry.Name()))
+			metadataFile := filepath.Join(storagePath, entry.Name())
+			metadata, err := readItemMetadataUnsafe(metadataFile, hmacSecret)
 			if err != nil {
-				log.Warnf("error reading item metadata: %v", err)
+				log.Warn().Err(err).Str("source", metadataFile).Msg("error reading item metadata")
 				continue
 			}
 
@@ -136,10 +147,17 @@ func readAllMetadataUnsafe(storagePath string) (map[uuid.UUID]Item, error) {
 	return items, nil
 }
 
-func readItemMetadataUnsafe(metadataPath string) (*Item, error) {
+func readItemMetadataUnsafe(metadataPath string, hmacSecret *memguard.LockedBuffer) (*Item, error) {
 	metadataBytes, err := os.ReadFile(metadataPath)
 	if err != nil {
 		return nil, err
+	}
+
+	h := hmac.New(sha256.New, hmacSecret.Bytes())
+	h.Write(metadataBytes[:len(metadataBytes)-32])
+	checkHmac := h.Sum(nil)
+	if !bytes.Equal(checkHmac, metadataBytes[len(metadataBytes)-32:]) {
+		return nil, errors.New("invalid metadata: checksum mismatch")
 	}
 
 	var metadata Item
@@ -155,13 +173,20 @@ func readItemMetadataUnsafe(metadataPath string) (*Item, error) {
 	return &metadata, nil
 }
 
-func writeItemMetadataUnsafe(metadataPath string, item Item) error {
+func writeItemMetadataUnsafe(metadataPath string, item Item, hmacSecret *memguard.LockedBuffer) error {
 	metadataBytes, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(metadataPath, metadataBytes, 0600)
+	h := hmac.New(sha256.New, hmacSecret.Bytes())
+	h.Write(metadataBytes)
+
+	result := make([]byte, 32+len(metadataBytes))
+	copy(result, metadataBytes)
+	copy(result[len(metadataBytes):], h.Sum(nil))
+
+	return os.WriteFile(metadataPath, result, 0600)
 }
 
 func copyFile(src, dest string) error {

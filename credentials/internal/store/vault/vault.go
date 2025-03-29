@@ -22,8 +22,8 @@ import (
 	"filippo.io/age"
 	"fmt"
 	"github.com/awnumar/memguard"
-	"github.com/gofiber/fiber/v2/log"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"io"
 	"maps"
 	"os"
@@ -46,13 +46,14 @@ type Item struct {
 }
 
 type Vault struct {
-	lock              sync.RWMutex
-	options           *Options
-	identityPath      string
-	identityKey       *memguard.Enclave
-	primaryRecipient  *age.X25519Recipient
-	recoveryRecipient *age.X25519Recipient
-	items             map[uuid.UUID]Item
+	lock               sync.RWMutex
+	options            *Options
+	identityPath       string
+	identityKey        *memguard.Enclave
+	metadataHmacSecret *memguard.Enclave
+	primaryRecipient   *age.X25519Recipient
+	recoveryRecipient  *age.X25519Recipient
+	items              map[uuid.UUID]Item
 }
 
 func (v *Vault) Options() *Options {
@@ -81,19 +82,15 @@ func NewVault(options *Options) (*Vault, error) {
 		return nil, fmt.Errorf("failed to load recovery recipient (%s): %v", recoveryRecipientPath, err)
 	}
 
-	items, err := readAllMetadataUnsafe(options.StoragePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read items metadata: %v", err)
-	}
-
 	return &Vault{
-		lock:              sync.RWMutex{},
-		options:           options,
-		identityPath:      filepath.Join(options.StoragePath, ".identity"),
-		identityKey:       nil,
-		primaryRecipient:  nil,
-		recoveryRecipient: recoveryRecipient,
-		items:             items,
+		lock:               sync.RWMutex{},
+		options:            options,
+		identityPath:       filepath.Join(options.StoragePath, ".identity"),
+		identityKey:        nil,
+		metadataHmacSecret: nil,
+		primaryRecipient:   nil,
+		recoveryRecipient:  recoveryRecipient,
+		items:              nil,
 	}, nil
 }
 
@@ -124,30 +121,59 @@ func (v *Vault) Unlock(passphrase string) error {
 		if err != nil {
 			v.identityKey = nil
 
-			log.Errorf("failed to read identity file (%s): %v", identityFile, err)
+			log.Error().Err(err).Str("source", identityFile).Msg("failed to read identity file")
 			return errors.New("failed to verify passphrase")
 		}
 
+		v.metadataHmacSecret = deriveMetadataHmacSecret(*identity)
 		v.primaryRecipient = identity.Recipient()
 	} else if os.IsNotExist(err) {
 		identity, err := age.GenerateX25519Identity()
 		if err != nil {
-			log.Errorf("failed to generate primary identity: %v", err)
+			v.identityKey = nil
+
+			log.Error().Err(err).Msg("failed to generate primary identity")
 			return errors.New("failed to verify passphrase")
 		}
-
-		v.primaryRecipient = identity.Recipient()
 
 		identityKey, _ := v.identityKey.Open()
 		defer identityKey.Destroy()
 
 		err = writeIdentity(identityFile, identityKey, identity)
 		if err != nil {
-			log.Errorf("failed to write identity (%s): %v", identityFile, err)
+			log.Err(err).Str("target", identityFile).Msg("failed to write identity")
 			return errors.New("failed to verify passphrase")
 		}
+
+		v.metadataHmacSecret = deriveMetadataHmacSecret(*identity)
+		v.primaryRecipient = identity.Recipient()
 	} else {
-		log.Errorf("failed to stat identity file: %v", err)
+		v.identityKey = nil
+
+		log.Error().Err(err).Str("source", identityFile).Msg("failed to stat identity file")
+		return errors.New("failed to verify passphrase")
+	}
+
+	metadataHmacSecret, err := v.metadataHmacSecret.Open()
+	if err != nil {
+		v.identityKey = nil
+		v.metadataHmacSecret = nil
+		v.primaryRecipient = nil
+
+		log.Error().Err(err).Msg("failed to access metadata HMAC secret")
+		return errors.New("failed to verify passphrase")
+	}
+
+	defer metadataHmacSecret.Destroy()
+
+	v.items, err = readAllMetadataUnsafe(v.options.StoragePath, metadataHmacSecret)
+	if err != nil {
+		v.identityKey = nil
+		v.metadataHmacSecret = nil
+		v.primaryRecipient = nil
+		v.items = nil
+
+		log.Error().Err(err).Msg("failed to read all item metadata")
 		return errors.New("failed to verify passphrase")
 	}
 
@@ -163,7 +189,9 @@ func (v *Vault) Lock() error {
 	}
 
 	v.identityKey = nil
+	v.metadataHmacSecret = nil
 	v.primaryRecipient = nil
+	v.items = nil
 
 	return nil
 }
@@ -183,9 +211,17 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 		return errors.New("vault is locked")
 	}
 
+	metadataHmacSecret, err := v.metadataHmacSecret.Open()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to access metadata HMAC secret")
+		return errors.New("failed to set recovery recipient")
+	}
+
+	defer metadataHmacSecret.Destroy()
+
 	recoveryRecipientPath := filepath.Join(v.options.StoragePath, ".recovery")
 	if err := writeRecoveryRecipient(recoveryRecipientPath, recipient); err != nil {
-		log.Errorf("failed to write recovery recipient: %v", err)
+		log.Error().Err(err).Str("target", recoveryRecipientPath).Msg("failed to write recovery recipient")
 
 		if v.recoveryRecipient != nil {
 			for i := 0; i < 3; i++ {
@@ -198,7 +234,7 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 			}
 
 			if err != nil {
-				log.Fatalf("failed to restore previous recovery recipient: %v", err)
+				log.Fatal().Err(err).Msg("failed to restore previous recovery recipient")
 			}
 		}
 
@@ -207,9 +243,11 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 
 	v.recoveryRecipient = &recipient
 
-	items, err := readAllMetadataUnsafe(v.options.StoragePath)
+	items, err := readAllMetadataUnsafe(v.options.StoragePath, metadataHmacSecret)
+	metadataHmacSecret.Destroy()
+
 	if err != nil {
-		log.Errorf("failed to read item metadata: %v", err)
+		log.Error().Err(err).Msg("failed to read all item metadata")
 		return errors.New("failed to set recovery recipient")
 	}
 
@@ -217,7 +255,7 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 		func() {
 			value, err := v.readItemValueUnsafe(item)
 			if err != nil {
-				log.Errorf("failed to read item value (%s): %v", item.Id, err)
+				log.Error().Err(err).Str("item", item.Id.String()).Msg("failed to read item value")
 				return
 			}
 
@@ -225,7 +263,7 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 
 			err = v.writeItemValueUnsafe(item, value)
 			if err != nil {
-				log.Errorf("failed to write item value (%s): %v", item.Id, err)
+				log.Error().Err(err).Str("item", item.Id.String()).Msg("failed to write item value")
 			}
 		}()
 	}
@@ -249,8 +287,17 @@ func (v *Vault) CreateItem(description string) (*Item, error) {
 		ModifiedAt:  time.Now(),
 	}
 
-	if err := writeItemMetadataUnsafe(v.metadataPath(item), item); err != nil {
-		log.Errorf("failed to write item metadata: %v", err)
+	metadataHmacSecret, err := v.metadataHmacSecret.Open()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to access metadata HMAC secret")
+		return nil, errors.New("failed to create item")
+	}
+
+	defer metadataHmacSecret.Destroy()
+
+	metadataPath := v.metadataPath(item)
+	if err := writeItemMetadataUnsafe(metadataPath, item, metadataHmacSecret); err != nil {
+		log.Error().Err(err).Str("target", metadataPath).Msg("failed to write item metadata")
 		return nil, errors.New("failed to create item")
 	}
 
@@ -269,7 +316,7 @@ func (v *Vault) DeleteItem(id uuid.UUID) error {
 
 	ok := v.deleteItemUnsafe(id)
 	if !ok {
-		log.Warnf("no such item: %s", id)
+		log.Warn().Str("item", id.String()).Msg("no such item")
 	}
 
 	return nil
@@ -316,8 +363,13 @@ func (v *Vault) SetItemValue(id uuid.UUID, value *memguard.LockedBuffer) error {
 	return v.writeItemValueUnsafe(item, value)
 }
 
-func (v *Vault) WriteItemValue(id uuid.UUID, value []byte) error {
-	return v.SetItemValue(id, memguard.NewBufferFromBytes(value))
+func (v *Vault) WriteItemValue(id uuid.UUID, r io.Reader) error {
+	buf, err := memguard.NewBufferFromEntireReader(r)
+	if err != nil {
+		return err
+	}
+
+	return v.SetItemValue(id, buf)
 }
 
 func (v *Vault) readItemValueUnsafe(item Item) (*memguard.LockedBuffer, error) {
@@ -364,7 +416,15 @@ func (v *Vault) writeItemValueUnsafe(item Item, value *memguard.LockedBuffer) er
 		return fmt.Errorf("failed to write item value (%s): %v", item.Id, err)
 	}
 
-	err = writeItemMetadataUnsafe(v.metadataPath(item), item)
+	metadataHmacSecret, err := v.metadataHmacSecret.Open()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to access metadata HMAC secret")
+		return fmt.Errorf("failed to write item value (%s): %v", item.Id, err)
+	}
+
+	defer metadataHmacSecret.Destroy()
+
+	err = writeItemMetadataUnsafe(v.metadataPath(item), item, metadataHmacSecret)
 	if err != nil {
 		return fmt.Errorf("failed to write item metadata (%s): %v", item.Id, err)
 	}
@@ -388,7 +448,11 @@ func (v *Vault) deleteItemUnsafe(id uuid.UUID) bool {
 	if _, err := os.Stat(metadataPath); err == nil {
 		err = os.Remove(metadataPath)
 		if err != nil {
-			log.Debugf("error deleting item metadata file (%s): %v", id.String(), err)
+			log.Debug().
+				Err(err).
+				Str("item", item.Id.String()).
+				Str("target", metadataPath).
+				Msg("failed to delete item metadata file")
 		} else {
 			removed = true
 		}
@@ -398,14 +462,18 @@ func (v *Vault) deleteItemUnsafe(id uuid.UUID) bool {
 	if _, err := os.Stat(valuePath); err == nil {
 		err = os.Remove(valuePath)
 		if err != nil {
-			log.Debugf("error deleting item value file (%s): %v", id.String(), err)
+			log.Debug().
+				Err(err).
+				Str("item", item.Id.String()).
+				Str("target", valuePath).
+				Msg("failed to delete item value file")
 		} else {
 			removed = true
 		}
 	}
 
 	if removed {
-		log.Infof("removed files for item: %s", id.String())
+		log.Info().Str("item", item.Id.String()).Msg("removed files for item")
 	}
 
 	return true
@@ -417,22 +485,19 @@ func (v *Vault) decryptFromRestUnsafe(data []byte) (*memguard.LockedBuffer, erro
 
 	identity, err := readIdentity(v.identityPath, identityKey)
 	if err != nil {
-		log.Errorf("error reading identity: %v", err)
-		return nil, errors.New("failed to decrypt data")
+		log.Fatal().Err(err).Msg("error reading identity")
 	}
 
 	reader, err := age.Decrypt(bytes.NewReader(data), identity)
 	if err != nil {
-		log.Fatalf("error decrypting data: %v", err)
-		return nil, errors.New("failed to decrypt data")
+		log.Fatal().Err(err).Msg("error decrypting data")
 	}
 
 	out := bytes.Buffer{}
 	defer wipeBuffer(out, out.Len())
 
 	if _, err := io.Copy(&out, reader); err != nil {
-		log.Fatalf("error decrypting data: %v", err)
-		return nil, errors.New("failed to decrypt data")
+		log.Fatal().Err(err).Msg("error decrypting data")
 	}
 
 	result := make([]byte, out.Len())
@@ -451,20 +516,17 @@ func (v *Vault) encryptForRestUnsafe(data *memguard.LockedBuffer) ([]byte, error
 	out := &bytes.Buffer{}
 	wc, err := age.Encrypt(out, recipients...)
 	if err != nil {
-		log.Fatalf("error encrypting data: %v", err)
-		return nil, errors.New("failed to encrypt data")
+		log.Fatal().Err(err).Msg("failed to encrypt data")
 	}
 
 	_, err = io.Copy(wc, bytes.NewReader(data.Bytes()))
 	if err != nil {
-		log.Fatalf("error writing data: %v", err)
-		return nil, errors.New("failed to encrypt data")
+		log.Fatal().Err(err).Msg("error writing data")
 	}
 
 	err = wc.Close()
 	if err != nil {
-		log.Fatalf("error closing writer: %v", err)
-		return nil, errors.New("failed to encrypt data")
+		log.Fatal().Err(err).Msg("error closing writer")
 	}
 
 	return out.Bytes(), nil

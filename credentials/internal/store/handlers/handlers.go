@@ -16,16 +16,29 @@
 package handlers
 
 import (
-	"github.com/gofiber/fiber/v2"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/state"
+	"github.com/gin-gonic/gin"
+	"github.com/go-mods/zerolog-gin"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
+	"net/http"
 )
 
-func Setup(app *fiber.App, state *state.State) {
-	app.Get("/version", func(c *fiber.Ctx) error {
-		return c.JSON(model.VersionResponse{
-			Version:      state.Version(),
-			IsProduction: state.IsProduction(),
-		})
-	})
+func version(state *service.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, state.GetVersion())
+	}
+}
+
+func SetupEngine(state *service.State) *gin.Engine {
+	if state.IsProduction() {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	r := gin.New()
+	_ = r.SetTrustedProxies([]string{})
+
+	r.Use(zerologgin.Logger())
+
+	r.GET("/version", version(state))
+
+	return r
 }

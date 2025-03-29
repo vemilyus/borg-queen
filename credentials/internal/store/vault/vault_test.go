@@ -16,6 +16,7 @@
 package vault
 
 import (
+	"bytes"
 	"filippo.io/age"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
@@ -266,7 +267,7 @@ func TestWriteItemValue(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Write the item value
-	err = vault.WriteItemValue(item.Id, []byte("test value"))
+	err = vault.WriteItemValue(item.Id, bytes.NewReader([]byte("test value")))
 	assert.NoError(t, err)
 
 	// Retrieve the item to verify the value was written correctly
