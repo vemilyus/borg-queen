@@ -180,6 +180,41 @@ func (v *Vault) Unlock(passphrase string) error {
 	return nil
 }
 
+func (v *Vault) VerifyPassphrase(passphrase string) error {
+	v.lock.RLock()
+	defer v.lock.RUnlock()
+
+	if v.IsLocked() {
+		return errors.New("vault is locked")
+	}
+
+	passphraseBytes := *(*[]byte)(unsafe.Pointer(&passphrase))
+	rawSum := sha256.Sum256(passphraseBytes)
+	memguard.WipeBytes(passphraseBytes)
+
+	checkKey := func() *memguard.LockedBuffer {
+		defer wipeSum(rawSum)
+		return memguard.NewBufferFromBytes(rawSum[:])
+	}()
+
+	defer checkKey.Destroy()
+
+	identityKey, err := v.identityKey.Open()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open identity key")
+		return errors.New("failed to verify passphrase")
+	}
+
+	defer identityKey.Destroy()
+
+	if !bytes.Equal(checkKey.Bytes(), identityKey.Bytes()) {
+		log.Info().Msg("incorrect passphrase specified")
+		return errors.New("failed to verify passphrase")
+	}
+
+	return nil
+}
+
 func (v *Vault) Lock() error {
 	v.lock.Lock()
 	defer v.lock.Unlock()

@@ -103,6 +103,59 @@ func TestUnlock(t *testing.T) {
 	assert.Nil(t, vault.primaryRecipient) // Primary recipient should be nil
 }
 
+func TestVerifyPassphrase(t *testing.T) {
+	// Create a new vault and unlock it
+	vault, err := NewVault(&Options{
+		StoragePath: t.TempDir(),
+	})
+	assert.NoError(t, err)
+
+	// Define a passphrase
+	// Unlock the vault with the correct passphrase
+	//goland:noinspection GoRedundantConversion
+	err = vault.Unlock(string([]byte("correct_passphrase")))
+	assert.NoError(t, err)
+
+	// Test verifying the passphrase with the correct passphrase
+	//goland:noinspection GoRedundantConversion
+	err = vault.VerifyPassphrase(string([]byte("correct_passphrase")))
+	assert.NoError(t, err) // Should succeed
+
+	// Test verifying the passphrase with an incorrect passphrase
+	//goland:noinspection GoRedundantConversion
+	err = vault.VerifyPassphrase(string([]byte("wrong_passphrase")))
+	assert.Error(t, err) // Should return an error for invalid passphrase
+
+	// Lock the vault
+	err = vault.Lock()
+	assert.NoError(t, err)
+
+	// Test verifying the passphrase when the vault is locked
+	//goland:noinspection GoRedundantConversion
+	err = vault.VerifyPassphrase(string([]byte("correct_passphrase")))
+	assert.Error(t, err) // Should return an error since the vault is locked
+}
+
+func TestVerifyPassphrase_EmptyPassphrase(t *testing.T) {
+	// Create a new vault and unlock it
+	vault, err := NewVault(&Options{
+		StoragePath: t.TempDir(),
+	})
+	assert.NoError(t, err)
+
+	// Define a passphrase
+	//goland:noinspection GoRedundantConversion
+	passphrase := string([]byte("correct_passphrase"))
+
+	// Unlock the vault with the correct passphrase
+	err = vault.Unlock(passphrase)
+	assert.NoError(t, err)
+
+	// Test verifying with an empty passphrase
+	err = vault.VerifyPassphrase("")
+	assert.Error(t, err) // Should return an error for empty passphrase
+}
+
 func TestSetRecoveryRecipient(t *testing.T) {
 	// Create a new vault
 	vault, err := NewVault(&Options{
