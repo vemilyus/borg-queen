@@ -17,7 +17,7 @@ package store
 
 import (
 	"errors"
-	"github.com/BurntSushi/toml"
+	"github.com/pelletier/go-toml/v2"
 	"os"
 )
 
@@ -33,8 +33,19 @@ type TlsConfig struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
+	configReader, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = configReader.Close()
+	}()
+
+	decoder := toml.NewDecoder(configReader)
+
 	var conf Config
-	if _, err := toml.DecodeFile(path, &conf); err != nil {
+	if err = decoder.Decode(&conf); err != nil {
 		return nil, err
 	}
 
