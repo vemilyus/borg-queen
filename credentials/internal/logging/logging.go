@@ -13,32 +13,39 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-package handlers
+package logging
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/go-mods/zerolog-gin"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
-	"net/http"
+	"fmt"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	golog "log"
+	"os"
+	"strings"
+	"time"
 )
 
-func version(state *service.State) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, state.GetVersion())
-	}
+type zerologLogger struct {
+	logger zerolog.Logger
 }
 
-func SetupEngine(state *service.State) *gin.Engine {
-	if state.IsProduction() {
-		gin.SetMode(gin.ReleaseMode)
+func (z *zerologLogger) Write(p []byte) (n int, err error) {
+	z.logger.Debug().Msg(string(p))
+	return len(p), nil
+}
+
+func InitLogging(prod bool) {
+	logWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339, NoColor: prod}
+	logWriter.FormatLevel = func(i interface{}) string {
+		return strings.ToUpper(fmt.Sprintf("| %5s |", i))
 	}
 
-	r := gin.New()
-	_ = r.SetTrustedProxies([]string{})
+	if prod {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
 
-	r.Use(zerologgin.Logger())
+	gologOutput := &zerologLogger{logger: log.Logger}
+	golog.SetOutput(gologOutput)
 
-	r.GET("/version", version(state))
-
-	return r
+	log.Logger = log.Output(logWriter)
 }

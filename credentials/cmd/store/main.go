@@ -17,19 +17,15 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
 	"github.com/awnumar/memguard"
 	"github.com/integrii/flaggy"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/vemilyus/borg-queen/credentials/internal/logging"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/handlers"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
 	"net"
-	"os"
-	"strings"
-	"time"
 )
 
 var version = "unknown"
@@ -42,7 +38,7 @@ func main() {
 	defer memguard.Purge()
 
 	parseArgs()
-	initLogging()
+	logging.InitLogging(prod)
 
 	config := loadConfig(configPath)
 
@@ -73,15 +69,6 @@ func parseArgs() {
 	flaggy.AddPositionalValue(&configPath, "CONFIG-PATH", 1, true, "Path to the configuration file")
 
 	flaggy.Parse()
-}
-
-func initLogging() {
-	logWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339, NoColor: prod}
-	logWriter.FormatLevel = func(i interface{}) string {
-		return strings.ToUpper(fmt.Sprintf("| %5s |", i))
-	}
-
-	log.Logger = log.Output(logWriter)
 }
 
 func loadConfig(configPath string) *store.Config {

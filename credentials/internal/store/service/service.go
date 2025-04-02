@@ -51,3 +51,21 @@ func (s *State) GetVersion() model.VersionResponse {
 		IsProduction: s.isProduction,
 	}
 }
+
+func (s *State) Unlock(request model.PassphraseRequest) (*model.ErrorResponse, bool) {
+	err := s.vault.Unlock(request.Passphrase)
+	if err != nil {
+		return &model.ErrorResponse{Message: err.Error()}, false
+	}
+
+	return nil, true
+}
+
+func (s *State) Lock() bool {
+	err := s.vault.Lock()
+	if err != nil {
+		return false
+	}
+
+	return true
+}

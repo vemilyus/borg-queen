@@ -15,24 +15,68 @@
 
 package model
 
-type SetupRequest struct {
+import (
+	"github.com/google/uuid"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+)
+
+type PassphraseRequest struct {
 	Passphrase string `json:"passphrase"`
 }
 
-type UnlockRequest struct {
-	Passphrase string `json:"passphrase"`
+type ClientCredentialsRequest struct {
+	Id     uuid.UUID `json:"id"`
+	Secret string    `json:"secret"`
 }
 
-type LoginRequest struct {
-	Passphrase  string   `json:"passphrase"`
-	Credentials []string `json:"credentials"`
+type CreateClientCredentialsRequest struct {
+	PassphraseRequest
+	Description string `json:"description"`
 }
 
-type LoginResponse struct {
-	Token string `json:"token"`
+type CreateClientCredentialsResponse struct {
+	ClientCredentialsRequest
+}
+
+type ListVaultItemsRequest struct {
+	PassphraseRequest
+	DescriptionContains *string `json:"descriptionContains"`
+}
+
+type ListVaultItemsResponse struct {
+	Items []vault.Item `json:"items"`
+}
+
+type ReadVaultItemRequest struct {
+	PassphraseRequest
+	ItemId uuid.UUID `json:"itemId"`
+}
+
+type ClientReadVaultItemRequest struct {
+	ClientCredentialsRequest
+	ItemId         uuid.UUID  `json:"itemId"`
+	VerificationId *uuid.UUID `json:"verificationId"`
+}
+
+type ReadVaultItemResponse struct {
+	Value          []byte     `json:"value"`
+	VerificationId *uuid.UUID `json:"verificationId"`
+}
+
+type DeleteVaultItemsRequest struct {
+	PassphraseRequest
+	ItemIds []uuid.UUID `json:"itemIds"`
+}
+
+type DeleteVaultItemsResponse struct {
+	DeletedItemIds []uuid.UUID `json:"deletedItemIds"`
 }
 
 type VersionResponse struct {
 	Version      string `json:"version"`
 	IsProduction bool   `json:"isProduction"`
+}
+
+type ErrorResponse struct {
+	Message string `json:"message"`
 }
