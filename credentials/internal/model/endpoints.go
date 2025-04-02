@@ -38,6 +38,11 @@ type CreateClientCredentialsResponse struct {
 	ClientCredentialsRequest
 }
 
+type SetRecoveryRecipientRequest struct {
+	PassphraseRequest
+	Recipient string `json:"recipient"`
+}
+
 type ListVaultItemsRequest struct {
 	PassphraseRequest
 	DescriptionContains *string `json:"descriptionContains"`

@@ -23,6 +23,24 @@ import (
 	"net/http"
 )
 
+func setRecoveryRecipient(state *service.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var setRecoveryRecipientRequest model.SetRecoveryRecipientRequest
+		if err := c.ShouldBindJSON(&setRecoveryRecipientRequest); err != nil {
+			c.JSON(http.StatusBadRequest, &model.ErrorResponse{Message: err.Error()})
+			return
+		}
+
+		err := state.SetRecoveryRecipient(setRecoveryRecipientRequest)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, err)
+			return
+		}
+
+		c.Status(http.StatusNoContent)
+	}
+}
+
 func listVaultItems(state *service.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var vaultItemsRequest model.ListVaultItemsRequest

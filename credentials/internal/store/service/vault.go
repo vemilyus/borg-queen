@@ -16,9 +16,30 @@
 package service
 
 import (
+	"filippo.io/age"
 	"github.com/google/uuid"
 	"github.com/vemilyus/borg-queen/credentials/internal/model"
 )
+
+func (s *State) SetRecoveryRecipient(request model.SetRecoveryRecipientRequest) *model.ErrorResponse {
+	err := s.vault.VerifyPassphrase(request.Passphrase)
+	if err != nil {
+		return &model.ErrorResponse{Message: err.Error()}
+	}
+
+	var recipient *age.X25519Recipient
+	recipient, err = age.ParseX25519Recipient(request.Recipient)
+	if err != nil {
+		return &model.ErrorResponse{Message: "invalid recipient: " + err.Error()}
+	}
+
+	err = s.vault.SetRecoveryRecipient(*recipient)
+	if err != nil {
+		return &model.ErrorResponse{Message: err.Error()}
+	}
+
+	return nil
+}
 
 func (s *State) ListVaultItems(request model.ListVaultItemsRequest) (*model.ListVaultItemsResponse, *model.ErrorResponse) {
 	err := s.vault.VerifyPassphrase(request.Passphrase)

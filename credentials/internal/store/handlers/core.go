@@ -75,6 +75,7 @@ func SetupEngine(state *service.State) *gin.Engine {
 	r.DELETE("/lock", lock(state))
 
 	// Endpoints using passphrase auth
+	r.POST("/admin/recovery-recipient", setRecoveryRecipient(state))
 	r.GET("/admin/item", readVaultItem(state))
 	r.GET("/admin/item/list", listVaultItems(state))
 	r.DELETE("/admin/item", deleteVaultItems(state))
