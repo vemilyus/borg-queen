@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/logging"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/cert"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/handlers"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
@@ -98,14 +99,14 @@ func startServer(state *service.State) {
 			log.Fatal().Msg("TLS configuration is not set")
 		}
 
-		var cert tls.Certificate
-		cert, err = tls.LoadX509KeyPair(config.Tls.CertFile, config.Tls.KeyFile)
+		var certReloader *cert.X509KeyPairReloader
+		certReloader, err = cert.NewX509KeyPairReloader(config.Tls.CertFile, config.Tls.KeyFile)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to load TLS certificate")
 		}
 
 		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{cert},
+			GetCertificate: certReloader.GetCertificate,
 		}
 
 		listener, err = tls.Listen("tcp", config.ListenAddress, tlsConfig)

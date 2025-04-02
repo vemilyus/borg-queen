@@ -30,7 +30,9 @@ type zerologLogger struct {
 }
 
 func (z *zerologLogger) Write(p []byte) (n int, err error) {
-	z.logger.Debug().Msg(string(p))
+	output := strings.TrimSpace(string(p))
+
+	z.logger.Debug().Msg(output)
 	return len(p), nil
 }
 
@@ -44,8 +46,8 @@ func InitLogging(prod bool) {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	gologOutput := &zerologLogger{logger: log.Logger}
-	golog.SetOutput(gologOutput)
-
 	log.Logger = log.Output(logWriter)
+
+	golog.SetFlags(0)
+	golog.SetOutput(&zerologLogger{logger: log.Logger})
 }

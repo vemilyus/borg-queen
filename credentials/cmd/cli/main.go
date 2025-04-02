@@ -25,7 +25,7 @@ func main() {
 
 func parseArgs() {
 	flaggy.SetName("Credential CLI(ent)")
-	flaggy.SetDescription("Securely retrieves credentials provided by a remote credential store")
+	flaggy.SetDescription("Securely interacts with a remote credential store")
 	flaggy.SetVersion(version)
 
 	flaggy.Parse()
