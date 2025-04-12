@@ -16,7 +16,6 @@
 package handlers
 
 import (
-	"github.com/awnumar/memguard"
 	"github.com/gin-gonic/gin"
 	"github.com/vemilyus/borg-queen/credentials/internal/model"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
@@ -30,6 +29,8 @@ func createClientCredentials(state *service.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, model.ErrorResponse{Message: err.Error()})
 			return
 		}
+
+		defer createClientCredentialsRequest.Wipe()
 
 		response, err := state.CreateClientCredentials(createClientCredentialsRequest)
 		if err != nil {
@@ -49,13 +50,15 @@ func clientReadVaultItems(state *service.State) gin.HandlerFunc {
 			return
 		}
 
+		defer clientReadVaultItemRequest.Wipe()
+
 		response, err := state.ClientReadVaultItem(clientReadVaultItemRequest, c.RemoteIP())
 		if err != nil {
 			c.JSON(http.StatusBadRequest, err)
 			return
 		}
 
-		defer memguard.WipeBytes(response.Value)
+		defer response.Wipe()
 
 		c.JSON(http.StatusOK, response)
 	}

@@ -29,10 +29,12 @@ import (
 	"net"
 )
 
-var version = "unknown"
+var (
+	version = "unknown"
 
-var prod bool
-var configPath string
+	prod       bool
+	configPath string
+)
 
 func main() {
 	memguard.CatchInterrupt()
@@ -62,7 +64,7 @@ func main() {
 }
 
 func parseArgs() {
-	flaggy.SetName("Credential Store")
+	flaggy.SetName("credstore")
 	flaggy.SetDescription("Securely stores and provides credentials over the network")
 	flaggy.SetVersion(version)
 

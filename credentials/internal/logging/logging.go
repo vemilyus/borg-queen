@@ -37,7 +37,7 @@ func (z *zerologLogger) Write(p []byte) (n int, err error) {
 }
 
 func InitLogging(prod bool) {
-	logWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339, NoColor: prod}
+	logWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339, NoColor: prod}
 	logWriter.FormatLevel = func(i interface{}) string {
 		return strings.ToUpper(fmt.Sprintf("| %5s |", i))
 	}
@@ -46,6 +46,31 @@ func InitLogging(prod bool) {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
+	initLogging(logWriter)
+}
+
+func InitSimpleLogging() {
+	infoLevel := zerolog.InfoLevel.String()
+	warnLevel := zerolog.WarnLevel.String()
+
+	logWriter := zerolog.ConsoleWriter{
+		Out: os.Stderr,
+		FormatLevel: func(i interface{}) string {
+			if i == infoLevel {
+				return " "
+			} else if i == warnLevel {
+				return "!"
+			}
+
+			return strings.ToUpper(fmt.Sprintf("%s:", i))
+		},
+		FormatTimestamp: func(i interface{}) string { return "" },
+	}
+
+	initLogging(logWriter)
+}
+
+func initLogging(logWriter zerolog.ConsoleWriter) {
 	log.Logger = log.Output(logWriter)
 
 	golog.SetFlags(0)

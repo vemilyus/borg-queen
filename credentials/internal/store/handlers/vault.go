@@ -16,7 +16,6 @@
 package handlers
 
 import (
-	"github.com/awnumar/memguard"
 	"github.com/gin-gonic/gin"
 	"github.com/vemilyus/borg-queen/credentials/internal/model"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
@@ -31,6 +30,8 @@ func setRecoveryRecipient(state *service.State) gin.HandlerFunc {
 			return
 		}
 
+		defer setRecoveryRecipientRequest.Wipe()
+
 		err := state.SetRecoveryRecipient(setRecoveryRecipientRequest)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, err)
@@ -41,6 +42,26 @@ func setRecoveryRecipient(state *service.State) gin.HandlerFunc {
 	}
 }
 
+func createVaultItem(state *service.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var createVaultItemRequest model.CreateVaultItemRequest
+		if err := c.ShouldBindJSON(&createVaultItemRequest); err != nil {
+			c.JSON(http.StatusBadRequest, &model.ErrorResponse{Message: err.Error()})
+			return
+		}
+
+		defer createVaultItemRequest.Wipe()
+
+		response, err := state.CreateVaultItem(createVaultItemRequest)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
 func listVaultItems(state *service.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var vaultItemsRequest model.ListVaultItemsRequest
@@ -48,6 +69,8 @@ func listVaultItems(state *service.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, &model.ErrorResponse{Message: err.Error()})
 			return
 		}
+
+		defer vaultItemsRequest.Wipe()
 
 		response, err := state.ListVaultItems(vaultItemsRequest)
 		if err != nil {
@@ -67,13 +90,15 @@ func readVaultItem(state *service.State) gin.HandlerFunc {
 			return
 		}
 
+		defer vaultItemRequest.Wipe()
+
 		response, err := state.ReadVaultItem(vaultItemRequest)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, err)
 			return
 		}
 
-		defer memguard.WipeBytes(response.Value)
+		defer response.Wipe()
 
 		c.JSON(http.StatusOK, response)
 	}
@@ -86,6 +111,8 @@ func deleteVaultItems(state *service.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, &model.ErrorResponse{Message: err.Error()})
 			return
 		}
+
+		defer deleteItemRequest.Wipe()
 
 		response, err := state.DeleteVaultItems(deleteItemRequest)
 		if err != nil {

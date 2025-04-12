@@ -17,7 +17,6 @@ package service
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
@@ -33,13 +32,7 @@ func (s *State) CreateClientCredentials(request model.CreateClientCredentialsReq
 		return nil, &model.ErrorResponse{Message: err.Error()}
 	}
 
-	randBytes := make([]byte, 32)
-	if _, err := rand.Read(randBytes); err != nil {
-		return nil, &model.ErrorResponse{Message: fmt.Sprintf("unable to generate random bytes: %v", err)}
-	}
-
-	randStr := hex.EncodeToString(randBytes)
-	memguard.WipeBytes(randBytes)
+	randStr := rand.Text()
 
 	secretBuffer := memguard.NewBufferFromBytes(*(*[]byte)(unsafe.Pointer(&randStr)))
 	defer secretBuffer.Destroy()

@@ -37,6 +37,8 @@ func unlock(state *service.State) gin.HandlerFunc {
 			return
 		}
 
+		defer passphraseRequest.Wipe()
+
 		err, ok := state.Unlock(passphraseRequest)
 		if !ok {
 			c.JSON(http.StatusBadRequest, err)
@@ -49,12 +51,7 @@ func unlock(state *service.State) gin.HandlerFunc {
 
 func lock(state *service.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ok := state.Lock()
-		if !ok {
-			c.JSON(http.StatusBadRequest, model.ErrorResponse{Message: "already locked"})
-			return
-		}
-
+		_ = state.Lock()
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -70,19 +67,22 @@ func SetupEngine(state *service.State) *gin.Engine {
 	r.Use(zerologgin.Logger())
 
 	// Core endpoints
-	r.GET("/version", version(state))
-	r.POST("/unlock", unlock(state))
-	r.DELETE("/lock", lock(state))
+	r.GET(model.PathGetVersion.String(), version(state))
+
+	// Vault endpoints
+	r.POST(model.PathPostVaultUnlock.String(), unlock(state))
+	r.DELETE(model.PathDeleteVaultLock.String(), lock(state))
 
 	// Endpoints using passphrase auth
-	r.POST("/admin/recovery-recipient", setRecoveryRecipient(state))
-	r.GET("/admin/item", readVaultItem(state))
-	r.GET("/admin/item/list", listVaultItems(state))
-	r.DELETE("/admin/item", deleteVaultItems(state))
-	r.POST("/admin/client", createClientCredentials(state))
+	r.POST(model.PathPostVaultRecoveryRecipient.String(), setRecoveryRecipient(state))
+	r.POST(model.PathGetItem.String(), readVaultItem(state))
+	r.POST(model.PathPostItem.String(), createVaultItem(state))
+	r.POST(model.PathGetItemList.String(), listVaultItems(state))
+	r.DELETE(model.PathDeleteItem.String(), deleteVaultItems(state))
+	r.POST(model.PathPostClient.String(), createClientCredentials(state))
 
 	// Endpoints using client auth
-	r.GET("/client/item", clientReadVaultItems(state))
+	r.POST(model.PathGetReadItem.String(), clientReadVaultItems(state))
 
 	return r
 }

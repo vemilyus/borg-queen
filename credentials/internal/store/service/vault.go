@@ -17,6 +17,7 @@ package service
 
 import (
 	"filippo.io/age"
+	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
 	"github.com/vemilyus/borg-queen/credentials/internal/model"
 )
@@ -39,6 +40,28 @@ func (s *State) SetRecoveryRecipient(request model.SetRecoveryRecipientRequest) 
 	}
 
 	return nil
+}
+
+func (s *State) CreateVaultItem(request model.CreateVaultItemRequest) (*model.CreateVaultItemResponse, *model.ErrorResponse) {
+	err := s.vault.VerifyPassphrase(request.Passphrase)
+	if err != nil {
+		return nil, &model.ErrorResponse{Message: err.Error()}
+	}
+
+	item, err := s.vault.CreateItem(request.Description)
+	if err != nil {
+		return nil, &model.ErrorResponse{Message: err.Error()}
+	}
+
+	itemValue := memguard.NewBufferFromBytes(request.Data)
+
+	err = s.vault.SetItemValue(item.Id, itemValue)
+	if err != nil {
+		_ = s.vault.DeleteItem(item.Id)
+		return nil, &model.ErrorResponse{Message: err.Error()}
+	}
+
+	return &model.CreateVaultItemResponse{ItemId: item.Id}, nil
 }
 
 func (s *State) ListVaultItems(request model.ListVaultItemsRequest) (*model.ListVaultItemsResponse, *model.ErrorResponse) {

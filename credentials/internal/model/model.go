@@ -16,12 +16,18 @@
 package model
 
 import (
+	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+	"unsafe"
 )
 
 type PassphraseRequest struct {
 	Passphrase string `json:"passphrase"`
+}
+
+func (p *PassphraseRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&p.Passphrase)))
 }
 
 type ClientCredentialsRequest struct {
@@ -29,13 +35,25 @@ type ClientCredentialsRequest struct {
 	Secret string    `json:"secret"`
 }
 
+func (c *ClientCredentialsRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&c.Secret)))
+}
+
 type CreateClientCredentialsRequest struct {
 	PassphraseRequest
 	Description string `json:"description"`
 }
 
+func (c *CreateClientCredentialsRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&c.Passphrase)))
+}
+
 type CreateClientCredentialsResponse struct {
 	ClientCredentialsRequest
+}
+
+func (c *CreateClientCredentialsResponse) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&c.Secret)))
 }
 
 type SetRecoveryRecipientRequest struct {
@@ -43,18 +61,44 @@ type SetRecoveryRecipientRequest struct {
 	Recipient string `json:"recipient"`
 }
 
+func (s *SetRecoveryRecipientRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&s.Passphrase)))
+}
+
 type ListVaultItemsRequest struct {
 	PassphraseRequest
 	DescriptionContains *string `json:"descriptionContains"`
+}
+
+func (l *ListVaultItemsRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&l.Passphrase)))
 }
 
 type ListVaultItemsResponse struct {
 	Items []vault.Item `json:"items"`
 }
 
+type CreateVaultItemRequest struct {
+	PassphraseRequest
+	Description string `json:"description"`
+	Data        []byte `json:"data"`
+}
+
+func (c *CreateVaultItemRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&c.Passphrase)))
+}
+
+type CreateVaultItemResponse struct {
+	ItemId uuid.UUID `json:"itemId"`
+}
+
 type ReadVaultItemRequest struct {
 	PassphraseRequest
 	ItemId uuid.UUID `json:"itemId"`
+}
+
+func (r *ReadVaultItemRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&r.Passphrase)))
 }
 
 type ClientReadVaultItemRequest struct {
@@ -63,14 +107,26 @@ type ClientReadVaultItemRequest struct {
 	VerificationId *uuid.UUID `json:"verificationId"`
 }
 
+func (c *ClientReadVaultItemRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&c.Secret)))
+}
+
 type ReadVaultItemResponse struct {
 	Value          []byte     `json:"value"`
 	VerificationId *uuid.UUID `json:"verificationId"`
 }
 
+func (c *ReadVaultItemResponse) Wipe() {
+	memguard.WipeBytes(c.Value)
+}
+
 type DeleteVaultItemsRequest struct {
 	PassphraseRequest
 	ItemIds []uuid.UUID `json:"itemIds"`
+}
+
+func (d *DeleteVaultItemsRequest) Wipe() {
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&d.Passphrase)))
 }
 
 type DeleteVaultItemsResponse struct {
