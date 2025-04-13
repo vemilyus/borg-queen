@@ -1,21 +1,10 @@
-<!--
- Copyright (C) 2025 Alex Katlein
-
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with this program. If not, see <https://www.gnu.org/licenses/>.
--->
-
 # borg-queen
+
+> [![build status](https://github.com/vemilyus/borg-queen/actions/workflows/build.yml/badge.svg)][actions-url]
+> [![Latest Release](https://img.shields.io/github/v/release/vemilyus/borg-queen)][release-url]
+
+[actions-url]: https://github.com/vemilyus/borg-queen/actions
+[release-url]: https://github.com/vemilyus/borg-queen/releases/latest
 
 Helps to setup and control as many Borg backups as possible with minimal configuration.
 
@@ -32,9 +21,18 @@ Helps to setup and control as many Borg backups as possible with minimal configu
 
 ## Tools
 
-- _borg-queen_ (backup setup on the individual hosts)
-- _credential-host_ (securely manages and provides encryption keys for Borg backups)
-- _credential-cli_ (interacts securely with _credential-host_ on the individual hosts)
+### [`borg-queen`](./borg-queen)
+
+Configures any backups as detected or specified in configuration files on an individual host.
+
+### [`credstore`](./credentials/cmd/store)
+
+Securely manages and provides secure values over the network.
+
+### [`cred`](./credentials/cmd/cli)
+
+Interacts with `credstore` on the individual hosts. Mainly used by `borg-queen` to retrieve
+encryption keys for borg backups as needed.
 
 ## Target platforms
 
