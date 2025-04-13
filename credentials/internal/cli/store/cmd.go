@@ -32,6 +32,7 @@ type Cmd struct {
 	*unlockCmd
 	*lockCmd
 	*setRecoveryRecipientCmd
+	*exportCmd
 }
 
 func NewCmd() *Cmd {
@@ -47,6 +48,7 @@ func NewCmd() *Cmd {
 	storeCmd.unlockCmd = newUnlockCmd(cmd)
 	storeCmd.lockCmd = newLockCmd(cmd)
 	storeCmd.setRecoveryRecipientCmd = newSetRecoveryRecipientCmd(cmd)
+	storeCmd.exportCmd = newExportCmd(cmd)
 
 	return storeCmd
 }
@@ -62,6 +64,8 @@ func (cmd *Cmd) Run(state *config.State) {
 		cmd.lockCmd.run(state)
 	} else if cmd.setRecoveryRecipientCmd.Used {
 		cmd.setRecoveryRecipientCmd.run(state)
+	} else if cmd.exportCmd.Used {
+		cmd.exportCmd.run(state)
 	} else {
 		flaggy.ShowHelpAndExit("")
 	}

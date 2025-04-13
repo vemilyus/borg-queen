@@ -43,7 +43,7 @@ func newSetRecoveryRecipientCmd(parent *flaggy.Subcommand) *setRecoveryRecipient
 }
 
 func (cmd *setRecoveryRecipientCmd) run(state *config.State) {
-	log.Warn().Msg("Setting a new recovery recipient is a destructive action and cannot be undone!")
+	log.Warn().Msg("Setting a new recovery recipient is a destructive\n action and cannot be undone!")
 	doSet, err := utils.PromptConfirm("Confirm setting a new recovery recipient", false)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to confirm")
