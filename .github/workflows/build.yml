@@ -1,6 +1,11 @@
 name: Build
 
-on: push
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
 
 jobs:
   build:
@@ -45,6 +50,52 @@ jobs:
       - name: Upload ${{ matrix.goos }}/${{ matrix.goarch }} artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.RUN_UNIQUE_ID }}_artifact_${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ github.run_id }}_artifact_${{ matrix.goos }}-${{ matrix.goarch }}
           path: bin
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [ 'build' ]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Previous Tag
+        id: previousTag
+        run: |
+          name=$(git --no-pager tag --sort=creatordate --merged ${{ github.ref_name }} | tail -2 | head -1)
+          echo "previousTag: $name"
+          echo "previousTag=$name" >> $GITHUB_ENV
+
+      - name: Generate CHANGELOG
+        id: changelog
+        uses: requarks/changelog-action@v1
+        with:
+          token: ${{ github.token }}
+          fromTag: ${{ github.ref_name }}
+          toTag: ${{ env.previousTag }}
+          writeToFile: false
+
+      - name: Merge Artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: ${{ github.run_id }}_artifacts
+          delete-merged: true
           retention-days: 1
+
+      - name: Retrieve artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.run_id }}_artifacts
+          path: bin
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          body: ${{ steps.changelog.outputs.changes }}
+          files: bin/*
