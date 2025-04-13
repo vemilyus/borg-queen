@@ -27,6 +27,14 @@ jobs:
               export VERSION=snapshot-${{ github.sha }}
           esac
           
+          if [[ ${{ matrix.goarch }} == "arm" ]]; then
+            suffix_arch=arm7l
+          else
+            suffix_arch=${{ matrix.goarch }}
+          fi
+          
+          export SUFFIX=${{ matrix.goos }}-${suffix_arch}
+          
           make build-ci
         env:
           GOOS: ${{ matrix.goos }}
