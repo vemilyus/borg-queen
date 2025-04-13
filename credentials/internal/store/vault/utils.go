@@ -195,16 +195,14 @@ func copyFile(src, dest string) error {
 		return err
 	}
 
-	//goland:noinspection GoUnhandledErrorResult
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	destFile, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 
-	//goland:noinspection GoUnhandledErrorResult
-	defer destFile.Close()
+	defer func() { _ = destFile.Close() }()
 
 	_, err = io.Copy(destFile, srcFile)
 	return err
@@ -223,7 +221,11 @@ func wipeSum(sum [32]byte) {
 	runtime.KeepAlive(sum)
 }
 
-func wipeBuffer(buf bytes.Buffer, length int) {
+func wipeBuffer(buf *bytes.Buffer, length int) {
+	// NOTE: Yes it may miss some data if the buffer was forced to allocate a bigger byte slice,
+	//       but any left-over secret value in memory will only be a partial value, so it's
+	//       not as bad as it seems.
+
 	buf.Truncate(0)
 	for range length {
 		buf.WriteByte(0)

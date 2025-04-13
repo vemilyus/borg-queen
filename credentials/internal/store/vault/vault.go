@@ -528,10 +528,10 @@ func (v *Vault) decryptFromRestUnsafe(data []byte) (*memguard.LockedBuffer, erro
 		log.Fatal().Err(err).Msg("error decrypting data")
 	}
 
-	out := bytes.Buffer{}
+	out := bytes.NewBuffer(make([]byte, 0, len(data)))
 	defer wipeBuffer(out, out.Len())
 
-	if _, err := io.Copy(&out, reader); err != nil {
+	if _, err := io.Copy(out, reader); err != nil {
 		log.Fatal().Err(err).Msg("error decrypting data")
 	}
 

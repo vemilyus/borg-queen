@@ -86,6 +86,7 @@ jobs:
           fromTag: ${{ github.ref_name }}
           toTag: ${{ env.previousTag }}
           writeToFile: false
+          excludeTypes: build,chore,ci,docs,other,style,test
 
       - name: Merge Artifacts
         uses: actions/upload-artifact/merge@v4
