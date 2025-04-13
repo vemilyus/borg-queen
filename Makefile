@@ -9,6 +9,11 @@ test:
 	go test ./credentials/...
 
 
+test-ci:
+	go test -json ./credentials/... \
+		| go-ctrf-json-reporter -output ctrf-report.json
+
+
 build: clean
 	go build -o="./bin/cred" ./credentials/cmd/cli
 	go build -o="./bin/credstore" ./credentials/cmd/store
