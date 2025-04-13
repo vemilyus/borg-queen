@@ -1,0 +1,41 @@
+name: Build
+
+on: push
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        goos: ['linux']
+        goarch: ['arm', 'arm64', 'amd64']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Run tests
+        run: make test
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }} binaries
+        run: |
+          case ${{ github.ref_name }} in
+            v*)
+              export VERSION=${{ github.ref_name }}
+              ;;
+            *)
+              export VERSION=snapshot-${{ github.sha }}
+          esac
+          
+          make build-ci
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: '7'
+          GOARM64: v8.0
+      - name: Upload ${{ matrix.goos }}/${{ matrix.goarch }} artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RUN_UNIQUE_ID }}_artifact_${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin
+          retention-days: 1

@@ -48,6 +48,10 @@ func (config *Config) HostString() string {
 }
 
 func (config *Config) Destroy() {
+	if config == nil {
+		return
+	}
+
 	if config.Passphrase != nil {
 		config.Passphrase.Destroy()
 	}
@@ -217,6 +221,10 @@ func EnsureConfigPath(parentPath *string) (string, error) {
 }
 
 func (config *Config) VerifyConnectionConfig() {
+	if config == nil {
+		log.Fatal().Msg("no config present")
+	}
+
 	if config.StoreHost == "" {
 		log.Fatal().Msg("Store host is not configured")
 	}
