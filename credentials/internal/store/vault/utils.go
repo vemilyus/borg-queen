@@ -161,7 +161,7 @@ func readItemMetadataUnsafe(metadataPath string, hmacSecret *memguard.LockedBuff
 	}
 
 	var metadata Item
-	err = json.Unmarshal(metadataBytes, &metadata)
+	err = json.Unmarshal(metadataBytes[:len(metadataBytes)-32], &metadata)
 	if err != nil {
 		return nil, err
 	}

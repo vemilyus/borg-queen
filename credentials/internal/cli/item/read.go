@@ -30,7 +30,6 @@ import (
 	"path"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 type listVaultItemsCmd struct {
@@ -140,7 +139,7 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 			log.Fatal().Err(err).Msg("Failed to parse client ID")
 		}
 
-		defer memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&clientId)))
+		defer memguard.WipeBytes(clientId[:])
 
 		clientRequest = &model.ClientReadVaultItemRequest{
 			ClientCredentialsRequest: model.ClientCredentialsRequest{
@@ -150,15 +149,13 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 			ItemId:         itemId,
 			VerificationId: verificationId,
 		}
-
-		defer clientRequest.Wipe()
 	} else if state.Config().Credentials != nil {
 		clientId, err := uuid.Parse(state.Config().Credentials.Id)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to parse client ID")
 		}
 
-		defer memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&clientId)))
+		defer memguard.WipeBytes(clientId[:])
 
 		clientRequest = &model.ClientReadVaultItemRequest{
 			ClientCredentialsRequest: model.ClientCredentialsRequest{
@@ -168,8 +165,6 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 			ItemId:         itemId,
 			VerificationId: verificationId,
 		}
-
-		defer clientRequest.Wipe()
 	} else {
 		log.Info().Msg("Reading vault item using passphrase")
 
@@ -185,8 +180,6 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 			},
 			ItemId: itemId,
 		}
-
-		defer adminRequest.Wipe()
 	}
 
 	httpClient := httpclient.New(state.Config())
@@ -204,8 +197,6 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 		log.Fatal().Err(err).Msg("Failed to read item")
 	}
 
-	defer readVaultItemResponse.Wipe()
-
 	if clientRequest != nil && readVaultItemResponse.VerificationId != nil {
 		err = storeVerificationId(state.ConfigDir(), itemId, readVaultItemResponse.VerificationId.String())
 		if err != nil {
@@ -214,9 +205,9 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 	}
 
 	secret := memguard.NewBufferFromBytes(readVaultItemResponse.Value)
-	defer secret.Wipe()
+	defer secret.Destroy()
 
-	print(secret.String())
+	_, _ = os.Stdout.Write(secret.Bytes())
 
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		println()
@@ -224,7 +215,7 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 }
 
 func loadVerificationId(parentDir string, itemId uuid.UUID) (*uuid.UUID, error) {
-	finalPath := path.Join(parentDir, itemId.String(), ".vid")
+	finalPath := path.Join(parentDir, itemId.String()+".vid")
 	var err error
 	if _, err = os.Stat(finalPath); os.IsNotExist(err) {
 		return nil, nil
@@ -247,6 +238,6 @@ func loadVerificationId(parentDir string, itemId uuid.UUID) (*uuid.UUID, error) 
 }
 
 func storeVerificationId(parentDir string, itemId uuid.UUID, verificationId string) error {
-	finalPath := path.Join(parentDir, itemId.String(), ".vid")
+	finalPath := path.Join(parentDir, itemId.String()+".vid")
 	return os.WriteFile(finalPath, []byte(verificationId), 0600)
 }

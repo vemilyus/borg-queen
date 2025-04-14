@@ -44,11 +44,19 @@ func CheckIfTls(storeHost string, storePort *uint16) (bool, error) {
 
 	d := tls.Dialer{Config: conf}
 	conn, err := d.DialContext(ctx, "tcp", addr)
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
 
 	if err != nil {
 		plainConn, plainErr := net.DialTimeout("tcp", addr, timeout)
-		defer func() { _ = plainConn.Close() }()
+		defer func() {
+			if plainConn != nil {
+				_ = plainConn.Close()
+			}
+		}()
 
 		if plainErr != nil {
 			return false, err

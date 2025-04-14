@@ -24,7 +24,7 @@ const (
 	PathPostVaultRecoveryRecipient Path = "/vault/recovery-recipient"
 	PathDeleteVaultLock            Path = "/vault/lock"
 
-	PathGetItem     Path = "/vault/item"
+	PathGetItem     Path = "/vault/item/value"
 	PathPostItem    Path = "/vault/item"
 	PathGetItemList Path = "/vault/item/list"
 	PathDeleteItem  Path = "/vault/item"

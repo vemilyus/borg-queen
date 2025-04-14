@@ -88,28 +88,27 @@ func (hc *HttpClient) request(ctx context.Context, method string, path model.Pat
 }
 
 func handleResponse(resp *http.Response, result any) error {
-	var err error
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes := make([]byte, 0, 4096)
-	defer memguard.WipeBytes(bodyBytes)
+	buf := bytes.NewBuffer(make([]byte, 0, resp.ContentLength))
+	defer memguard.WipeBytes(buf.Bytes())
 
-	_, err = resp.Body.Read(bodyBytes)
-	if err != nil && err != io.EOF {
+	_, err := buf.ReadFrom(resp.Body)
+	if err != nil {
 		return err
 	}
 
 	if resp.StatusCode == http.StatusBadRequest {
 		errResp := model.ErrorResponse{}
-		err = json.Unmarshal(bodyBytes, &errResp)
+		err = json.Unmarshal(buf.Bytes(), &errResp)
 
 		return errors.New(errResp.Message)
 	} else if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errors.New(fmt.Sprintf("unexpected response: %d -> %s", resp.StatusCode, string(bodyBytes)))
+		return errors.New(fmt.Sprintf("unexpected response: %d -> %s", resp.StatusCode, string(buf.Bytes())))
 	}
 
 	if result != nil {
-		return json.Unmarshal(bodyBytes, result)
+		return json.Unmarshal(buf.Bytes(), result)
 	}
 
 	return nil

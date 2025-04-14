@@ -150,8 +150,11 @@ func (s *State) ClientReadVaultItem(request model.ClientReadVaultItemRequest, re
 
 	defer itemValue.Destroy()
 
+	itemBytes := make([]byte, len(itemValue.Bytes()))
+	copy(itemBytes, itemValue.Bytes())
+
 	return &model.ReadVaultItemResponse{
-		Value:          itemValue.Bytes()[:],
+		Value:          itemBytes,
 		VerificationId: &verificationId,
 	}, nil
 }

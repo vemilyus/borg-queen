@@ -37,8 +37,6 @@ func unlock(state *service.State) gin.HandlerFunc {
 			return
 		}
 
-		defer passphraseRequest.Wipe()
-
 		err, ok := state.Unlock(passphraseRequest)
 		if !ok {
 			c.JSON(http.StatusBadRequest, err)

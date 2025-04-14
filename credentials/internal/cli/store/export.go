@@ -52,7 +52,7 @@ func newExportCmd(parent *flaggy.Subcommand) *exportCmd {
 }
 
 func (cmd *exportCmd) run(state *config.State) {
-	log.Warn().Msg("Exporting the entire contents of the vault may potentially compromise\n the security of your data.")
+	log.Warn().Msg("Exporting the entire contents of the vault may potentially compromise\n  the security of your data.")
 	doExport, err := utils.PromptConfirm("Confirm exporting all vault contents", false)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to confirm")
@@ -105,12 +105,11 @@ func (cmd *exportCmd) run(state *config.State) {
 		}
 
 		strVal := string(readVaultItemResponse.Value)
-		readVaultItemResponse.Wipe()
 
 		values = append(values, &exportItem{
-			description: &item.Description,
-			id:          item.Id,
-			value:       &strVal,
+			Description: &item.Description,
+			Id:          item.Id,
+			Value:       &strVal,
 		})
 	}
 
@@ -131,22 +130,22 @@ func (cmd *exportCmd) run(state *config.State) {
 }
 
 type exportData struct {
-	items []*exportItem
+	Items []*exportItem `json:"items"`
 }
 
 func (ed *exportData) wipe() {
-	for i := range ed.items {
-		ed.items[i].wipe()
+	for i := range ed.Items {
+		ed.Items[i].wipe()
 	}
 }
 
 type exportItem struct {
-	description *string
-	id          uuid.UUID
-	value       *string
+	Description *string   `json:"description"`
+	Id          uuid.UUID `json:"id"`
+	Value       *string   `json:"value"`
 }
 
 func (ei *exportItem) wipe() {
-	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(ei.description)))
-	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(ei.value)))
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(ei.Description)))
+	memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(ei.Value)))
 }

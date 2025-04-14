@@ -71,6 +71,8 @@ func PromptSecure(prompt string) (*memguard.LockedBuffer, error) {
 		return nil, err
 	}
 
+	println()
+
 	return memguard.NewBufferFromBytes(s), nil
 }
 

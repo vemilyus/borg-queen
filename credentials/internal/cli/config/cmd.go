@@ -41,6 +41,10 @@ func NewCmd() *Cmd {
 }
 
 func (cmd *Cmd) Run(state *State) {
+	if state.config == nil {
+		state.config = &Config{}
+	}
+
 	hostname, err := utils.Prompt("Enter the hostname", state.Config().StoreHost)
 	if err != nil {
 		log.Fatal().Err(err).Send()
@@ -63,13 +67,10 @@ func (cmd *Cmd) Run(state *State) {
 		log.Fatal().Err(err).Msg("Invalid port number")
 	}
 
-	var storePort *uint16
-	if state.config.StorePort != nil {
-		tmp := uint16(newPort)
-		storePort = &tmp
-	}
+	storePort := uint16(newPort)
+	state.config.StorePort = &storePort
 
-	isTls, err := conn.CheckIfTls(hostname, storePort)
+	isTls, err := conn.CheckIfTls(hostname, &storePort)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to check whether store uses TLS")
 	}
@@ -88,10 +89,10 @@ func (cmd *Cmd) Run(state *State) {
 
 	state.config.UseTls = isTls
 
-	if storePort != nil {
-		if (isTls && *storePort != 443) || (!isTls && *storePort != 80) {
-			state.config.StorePort = storePort
-		}
+	if (isTls && storePort != 443) || (!isTls && storePort != 80) {
+		state.config.StorePort = &storePort
+	} else {
+		state.config.StorePort = nil
 	}
 
 	err = Store(&state.configDir, *state.config)

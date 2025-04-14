@@ -107,8 +107,6 @@ func (cmd *createClientCredentialsCmd) run(state *config.State) {
 		log.Fatal().Err(err).Msg("Failed to create client credentials")
 	}
 
-	defer clientCredentials.Wipe()
-
 	log.Info().Msgf("Created client credentials: %s", actualDescription)
 	log.Info().Msgf("Client ID:     %s", clientCredentials.Id.String())
 	log.Info().Msgf("Client Secret: %s", clientCredentials.Secret)

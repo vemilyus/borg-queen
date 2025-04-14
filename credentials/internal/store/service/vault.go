@@ -88,7 +88,10 @@ func (s *State) ReadVaultItem(request model.ReadVaultItemRequest) (*model.ReadVa
 
 	defer value.Destroy()
 
-	return &model.ReadVaultItemResponse{Value: value.Bytes()[:]}, nil
+	valueBytes := make([]byte, len(value.Bytes()))
+	copy(valueBytes, value.Bytes())
+
+	return &model.ReadVaultItemResponse{Value: valueBytes}, nil
 }
 
 func (s *State) DeleteVaultItems(request model.DeleteVaultItemsRequest) (*model.DeleteVaultItemsResponse, *model.ErrorResponse) {

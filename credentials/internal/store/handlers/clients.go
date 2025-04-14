@@ -30,8 +30,6 @@ func createClientCredentials(state *service.State) gin.HandlerFunc {
 			return
 		}
 
-		defer createClientCredentialsRequest.Wipe()
-
 		response, err := state.CreateClientCredentials(createClientCredentialsRequest)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, err)
@@ -45,20 +43,16 @@ func createClientCredentials(state *service.State) gin.HandlerFunc {
 func clientReadVaultItems(state *service.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var clientReadVaultItemRequest model.ClientReadVaultItemRequest
-		if err := c.ShouldBindUri(&clientReadVaultItemRequest); err != nil {
+		if err := c.ShouldBindJSON(&clientReadVaultItemRequest); err != nil {
 			c.JSON(http.StatusBadRequest, model.ErrorResponse{Message: err.Error()})
 			return
 		}
-
-		defer clientReadVaultItemRequest.Wipe()
 
 		response, err := state.ClientReadVaultItem(clientReadVaultItemRequest, c.RemoteIP())
 		if err != nil {
 			c.JSON(http.StatusBadRequest, err)
 			return
 		}
-
-		defer response.Wipe()
 
 		c.JSON(http.StatusOK, response)
 	}

@@ -78,31 +78,27 @@ func Store(parentPath *string, config Config) error {
 		return err
 	}
 
-	configWriter, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC, 0600)
+	configFile, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 
-	defer func() { _ = configWriter.Close() }()
-
-	encoder := toml.NewEncoder(configWriter)
-	if err = encoder.Encode(config); err != nil {
-		return err
-	}
+	defer func() { _ = configFile.Close() }()
 
 	config.storeSecureValues()
 
+	encoder := toml.NewEncoder(configFile)
 	return encoder.Encode(config)
 }
 
 func (config *Config) storeSecureValues() {
 	var err error
 
-	var storePort int32
+	var storePort uint16
 	if config.StorePort != nil {
-		storePort = (int32)(*config.StorePort)
+		storePort = *config.StorePort
 	} else {
-		storePort = -1
+		storePort = 0
 	}
 
 	if config.SecureCredentials != nil {
@@ -122,7 +118,7 @@ func (config *Config) storeSecureValues() {
 	}
 
 	if config.StorePassphraseInKeyring && config.Passphrase != nil {
-		passphraseKey := fmt.Sprintf("%s:%d-passphrase", config.StoreHost, config.StorePort)
+		passphraseKey := fmt.Sprintf("%s:%d-passphrase", config.StoreHost, storePort)
 		if err = setInKeyring(passphraseKey, config.Passphrase); err != nil {
 			log.Warn().Err(err).Msgf("Failed to store passphrase for %s:%d", config.StoreHost, storePort)
 		}
@@ -158,11 +154,11 @@ func Load(path string) (*Config, error) {
 func (config *Config) loadSecureValues() {
 	var err error
 
-	var storePort int32
+	var storePort uint16
 	if config.StorePort != nil {
-		storePort = (int32)(*config.StorePort)
+		storePort = *config.StorePort
 	} else {
-		storePort = -1
+		storePort = 0
 	}
 
 	idKey := fmt.Sprintf("%s:%d-cred-id", config.StoreHost, storePort)
@@ -210,6 +206,8 @@ func EnsureConfigPath(parentPath *string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
+		parentDir = filepath.Join(parentDir, ".config", "credstore")
 	}
 
 	err := os.MkdirAll(parentDir, 0700)

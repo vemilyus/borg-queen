@@ -23,6 +23,7 @@ import (
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
 	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"os"
 )
 
 type setRecoveryRecipientCmd struct {
@@ -43,7 +44,7 @@ func newSetRecoveryRecipientCmd(parent *flaggy.Subcommand) *setRecoveryRecipient
 }
 
 func (cmd *setRecoveryRecipientCmd) run(state *config.State) {
-	log.Warn().Msg("Setting a new recovery recipient is a destructive\n action and cannot be undone!")
+	log.Warn().Msg("Setting a new recovery recipient is a destructive\n  action and cannot be undone!")
 	doSet, err := utils.PromptConfirm("Confirm setting a new recovery recipient", false)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to confirm")
@@ -63,7 +64,7 @@ func (cmd *setRecoveryRecipientCmd) run(state *config.State) {
 	log.Warn().Msg("Save the new identity now, it will never be shown again!")
 	log.Info().Send()
 
-	println(identity.String())
+	_, _ = os.Stdout.WriteString(identity.String())
 
 	log.Info().Send()
 

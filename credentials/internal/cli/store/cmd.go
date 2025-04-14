@@ -104,7 +104,7 @@ func (cmd *versionCmd) run(state *config.State) {
 	}
 
 	if cmd.quiet {
-		print(response.Version)
+		_, _ = os.Stdout.WriteString(response.Version)
 
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
 			println()
@@ -112,6 +112,7 @@ func (cmd *versionCmd) run(state *config.State) {
 	} else {
 		log.Info().Msg("Remote store info")
 		log.Info().Msgf("    Version: %s", response.Version)
+		log.Info().Msgf("    Locked: %v", response.IsVaultLocked)
 		log.Info().Msgf("    Production mode: %v", response.IsProduction)
 	}
 }

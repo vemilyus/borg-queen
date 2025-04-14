@@ -47,8 +47,9 @@ func (s *State) IsProduction() bool {
 
 func (s *State) GetVersion() model.VersionResponse {
 	return model.VersionResponse{
-		Version:      s.version,
-		IsProduction: s.isProduction,
+		Version:       s.version,
+		IsVaultLocked: s.vault.IsLocked(),
+		IsProduction:  s.isProduction,
 	}
 }
 
