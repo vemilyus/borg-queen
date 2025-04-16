@@ -16,74 +16,115 @@
 package service
 
 import (
+	"errors"
 	"filippo.io/age"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
 )
 
-func (s *State) SetRecoveryRecipient(request model.SetRecoveryRecipientRequest) *model.ErrorResponse {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
+func (s *State) SetRecoveryRecipient(request *proto.RecoveryRecipient) error {
+	err := s.vault.VerifyPassphrase(request.GetCredentials().Passphrase)
 	if err != nil {
-		return &model.ErrorResponse{Message: err.Error()}
+		return err
 	}
 
 	var recipient *age.X25519Recipient
 	recipient, err = age.ParseX25519Recipient(request.Recipient)
 	if err != nil {
-		return &model.ErrorResponse{Message: "invalid recipient: " + err.Error()}
+		return err
 	}
 
 	err = s.vault.SetRecoveryRecipient(*recipient)
 	if err != nil {
-		return &model.ErrorResponse{Message: err.Error()}
+		return err
 	}
 
 	return nil
 }
 
-func (s *State) CreateVaultItem(request model.CreateVaultItemRequest) (*model.CreateVaultItemResponse, *model.ErrorResponse) {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
+func (s *State) CreateVaultItem(request *proto.ItemCreation) (*proto.Item, error) {
+	err := s.vault.VerifyPassphrase(request.GetCredentials().Passphrase)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
 	item, err := s.vault.CreateItem(request.Description)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
-	itemValue := memguard.NewBufferFromBytes(request.Data)
+	itemValue := memguard.NewBufferFromBytes(request.GetValue())
 
 	err = s.vault.SetItemValue(item.Id, itemValue)
 	if err != nil {
 		_ = s.vault.DeleteItem(item.Id)
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
-	return &model.CreateVaultItemResponse{ItemId: item.Id}, nil
+	return &proto.Item{
+		Id:          item.Id.String(),
+		Description: item.Description,
+		Checksum:    item.Checksum,
+		CreatedAt:   item.ModifiedAt.UnixMilli(),
+	}, nil
 }
 
-func (s *State) ListVaultItems(request model.ListVaultItemsRequest) (*model.ListVaultItemsResponse, *model.ErrorResponse) {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
+func (s *State) ListVaultItems(request *proto.ItemSearch) ([]vault.Item, error) {
+	err := s.vault.VerifyPassphrase(request.GetCredentials().Passphrase)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
 	items := s.vault.Items()
 
-	return &model.ListVaultItemsResponse{Items: items}, nil
+	return items, nil
 }
 
-func (s *State) ReadVaultItem(request model.ReadVaultItemRequest) (*model.ReadVaultItemResponse, *model.ErrorResponse) {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
+func (s *State) DeleteVaultItems(request *proto.ItemDeletion) ([]uuid.UUID, error) {
+	err := s.vault.VerifyPassphrase(request.GetCredentials().Passphrase)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
-	value, err := s.vault.GetItem(request.ItemId)
+	deletedItemIds := make([]uuid.UUID, 0, len(request.Id))
+
+	for _, idRaw := range request.Id {
+		id, err := uuid.Parse(idRaw)
+		if err != nil {
+			return nil, err
+		}
+
+		err = s.vault.DeleteItem(id)
+		if err != nil {
+			return nil, err
+		}
+
+		deletedItemIds = append(deletedItemIds, id)
+	}
+
+	return deletedItemIds, nil
+}
+
+func (s *State) ReadVaultItem(request *proto.ItemRequest) (*proto.ItemValue, error) {
+	var err error
+	if request.GetAdmin() != nil {
+		err = s.vault.VerifyPassphrase(request.GetAdmin().GetPassphrase())
+	} else if request.GetClient() != nil {
+		err = s.verifyClientCredentials(request.GetClient())
+	} else {
+		err = errors.New("invalid request: no credentials provided")
+	}
+
+	itemId, err := uuid.Parse(request.GetItemId())
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
+	}
+
+	value, err := s.vault.GetItem(itemId)
+	if err != nil {
+		return nil, err
 	}
 
 	defer value.Destroy()
@@ -91,25 +132,5 @@ func (s *State) ReadVaultItem(request model.ReadVaultItemRequest) (*model.ReadVa
 	valueBytes := make([]byte, len(value.Bytes()))
 	copy(valueBytes, value.Bytes())
 
-	return &model.ReadVaultItemResponse{Value: valueBytes}, nil
-}
-
-func (s *State) DeleteVaultItems(request model.DeleteVaultItemsRequest) (*model.DeleteVaultItemsResponse, *model.ErrorResponse) {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
-	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
-	}
-
-	deletedItemIds := make([]uuid.UUID, 0, len(request.ItemIds))
-
-	for _, id := range request.ItemIds {
-		err = s.vault.DeleteItem(id)
-		if err != nil {
-			return nil, &model.ErrorResponse{Message: err.Error()}
-		}
-
-		deletedItemIds = append(deletedItemIds, id)
-	}
-
-	return &model.DeleteVaultItemsResponse{DeletedItemIds: deletedItemIds}, nil
+	return &proto.ItemValue{Value: valueBytes}, nil
 }

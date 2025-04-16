@@ -21,9 +21,9 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"slices"
 	"strings"
 )
@@ -93,23 +93,23 @@ func (cmd *createClientCredentialsCmd) run(state *config.State) {
 		defer passphrase.Destroy()
 	}
 
-	httpClient := httpclient.New(state.Config())
-
-	var clientCredentials model.CreateClientCredentialsResponse
-	err := httpClient.Post(model.PathPostClient, model.CreateClientCredentialsRequest{
-		PassphraseRequest: model.PassphraseRequest{
-			Passphrase: passphrase.String(),
+	credentials, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (*proto.ClientCredentials, error) {
+			return c.CreateClientCredentials(&proto.ClientCreation{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+				Description: actualDescription,
+			})
 		},
-		Description: actualDescription,
-	}, &clientCredentials)
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create client credentials")
 	}
 
 	log.Info().Msgf("Created client credentials: %s", actualDescription)
-	log.Info().Msgf("Client ID:     %s", clientCredentials.Id.String())
-	log.Info().Msgf("Client Secret: %s", clientCredentials.Secret)
+	log.Info().Msgf("Client ID:     %s", credentials.GetId())
+	log.Info().Msgf("Client Secret: %s", credentials.GetSecret())
 }
 
 type deleteClientCredentialsCmd struct {
@@ -154,21 +154,21 @@ func (cmd *deleteClientCredentialsCmd) run(state *config.State) {
 		defer passphrase.Destroy()
 	}
 
-	httpClient := httpclient.New(state.Config())
-
-	var response model.DeleteVaultItemsResponse
-	err = httpClient.Delete(model.PathDeleteItem, model.DeleteVaultItemsRequest{
-		PassphraseRequest: model.PassphraseRequest{
-			Passphrase: passphrase.String(),
+	deletedIds, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) ([]string, error) {
+			return c.DeleteVaultItems(&proto.ItemDeletion{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+				Id:          []string{clientId.String()},
+			})
 		},
-		ItemIds: []uuid.UUID{clientId},
-	}, &response)
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to delete client credentials")
 	}
 
-	if slices.Contains(response.DeletedItemIds, clientId) {
+	if slices.Contains(deletedIds, clientId.String()) {
 		log.Info().Msg("Client credentials deleted")
 	} else {
 		log.Info().Msg("Client credentials not found")

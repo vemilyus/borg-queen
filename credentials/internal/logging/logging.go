@@ -51,15 +51,12 @@ func InitLogging(prod bool) {
 
 func InitSimpleLogging() {
 	infoLevel := zerolog.InfoLevel.String()
-	warnLevel := zerolog.WarnLevel.String()
 
 	logWriter := zerolog.ConsoleWriter{
 		Out: os.Stderr,
 		FormatLevel: func(i interface{}) string {
 			if i == infoLevel {
-				return " "
-			} else if i == warnLevel {
-				return "!"
+				return ""
 			}
 
 			return strings.ToUpper(fmt.Sprintf("%s:", i))

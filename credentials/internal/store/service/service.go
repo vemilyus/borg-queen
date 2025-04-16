@@ -16,7 +16,7 @@
 package service
 
 import (
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
 )
@@ -45,21 +45,16 @@ func (s *State) IsProduction() bool {
 	return s.isProduction
 }
 
-func (s *State) GetVersion() model.VersionResponse {
-	return model.VersionResponse{
+func (s *State) StoreInfo() *proto.StoreInfo {
+	return &proto.StoreInfo{
 		Version:       s.version,
 		IsVaultLocked: s.vault.IsLocked(),
-		IsProduction:  s.isProduction,
+		IsProduction:  s.IsProduction(),
 	}
 }
 
-func (s *State) Unlock(request model.PassphraseRequest) (*model.ErrorResponse, bool) {
-	err := s.vault.Unlock(request.Passphrase)
-	if err != nil {
-		return &model.ErrorResponse{Message: err.Error()}, false
-	}
-
-	return nil, true
+func (s *State) Unlock(request *proto.AdminCredentials) error {
+	return s.vault.Unlock(request.Passphrase)
 }
 
 func (s *State) Lock() bool {

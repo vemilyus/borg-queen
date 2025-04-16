@@ -21,9 +21,9 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"slices"
 	"strings"
 )
@@ -86,22 +86,22 @@ func (cmd *createVaultItemCmd) run(state *config.State) {
 		defer passphrase.Destroy()
 	}
 
-	httpClient := httpclient.New(state.Config())
-
-	var response model.CreateVaultItemResponse
-	err = httpClient.Post(model.PathPostItem, model.CreateVaultItemRequest{
-		PassphraseRequest: model.PassphraseRequest{
-			Passphrase: passphrase.String(),
+	item, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (*proto.Item, error) {
+			return c.CreateVaultItem(&proto.ItemCreation{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+				Description: cmd.description,
+				Value:       secret.Bytes(),
+			})
 		},
-		Description: cmd.description,
-		Data:        secret.Bytes(),
-	}, &response)
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create vault item")
 	}
 
-	log.Info().Msgf("Created vault item with ID: %s", response.ItemId.String())
+	log.Info().Msgf("Created vault item with ID: %s", item.Id)
 }
 
 type deleteVaultItemsCmd struct {
@@ -125,7 +125,7 @@ func newDeleteVaultItemsCmd(parent *flaggy.Subcommand) *deleteVaultItemsCmd {
 }
 
 func (cmd *deleteVaultItemsCmd) run(state *config.State) {
-	var itemIds []uuid.UUID
+	var itemIds []string
 
 	rawItemIds := append([]string{}, cmd.firstItemId)
 	rawItemIds = append(rawItemIds, flaggy.TrailingArguments...)
@@ -137,7 +137,7 @@ func (cmd *deleteVaultItemsCmd) run(state *config.State) {
 			continue
 		}
 
-		itemIds = append(itemIds, parsed)
+		itemIds = append(itemIds, parsed.String())
 	}
 
 	if len(itemIds) == 0 {
@@ -166,22 +166,21 @@ func (cmd *deleteVaultItemsCmd) run(state *config.State) {
 		defer passphrase.Destroy()
 	}
 
-	httpClient := httpclient.New(state.Config())
-
-	var response model.DeleteVaultItemsResponse
-	err = httpClient.Delete(model.PathDeleteItem, model.DeleteVaultItemsRequest{
-		PassphraseRequest: model.PassphraseRequest{
-			Passphrase: passphrase.String(),
-		},
-		ItemIds: itemIds,
-	}, &response)
+	deletedItemIds, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) ([]string, error) {
+			return c.DeleteVaultItems(&proto.ItemDeletion{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+				Id:          itemIds,
+			})
+		})
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to delete items")
 	}
 
 	for i, id := range itemIds {
-		if slices.Contains(response.DeletedItemIds, id) {
+		if slices.Contains(deletedItemIds, id) {
 			log.Info().Msgf("[%d] %s DELETED", i+1, id)
 		} else {
 			log.Warn().Msgf("[%d] %s NOT FOUND", i+1, id)

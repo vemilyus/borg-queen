@@ -4,6 +4,7 @@
 > [![Latest Release](https://img.shields.io/github/v/release/vemilyus/borg-queen)][release-url]
 
 [actions-url]: https://github.com/vemilyus/borg-queen/actions
+
 [release-url]: https://github.com/vemilyus/borg-queen/releases/latest
 
 Helps to setup and control as many Borg backups as possible with minimal configuration.
@@ -33,6 +34,9 @@ Securely manages and provides secure values over the network.
 
 Interacts with `credstore` on the individual hosts. Mainly used by `borg-queen` to retrieve
 encryption keys for borg backups as needed.
+
+`cred` and `credstore` are tightly coupled and communicate via gRPC to keep network overhead
+to a minimum. And also because any HTTP based API would end up looking like RPC anyway.
 
 ## Target platforms
 

@@ -19,16 +19,16 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"golang.org/x/crypto/ssh/terminal"
 	"os"
 )
 
 type Cmd struct {
 	*flaggy.Subcommand
-	*versionCmd
+	*infoCmd
 	*unlockCmd
 	*lockCmd
 	*setRecoveryRecipientCmd
@@ -44,7 +44,7 @@ func NewCmd() *Cmd {
 	flaggy.AttachSubcommand(cmd, 1)
 
 	storeCmd.Subcommand = cmd
-	storeCmd.versionCmd = newVersionCmd(cmd)
+	storeCmd.infoCmd = newInfoCmd(cmd)
 	storeCmd.unlockCmd = newUnlockCmd(cmd)
 	storeCmd.lockCmd = newLockCmd(cmd)
 	storeCmd.setRecoveryRecipientCmd = newSetRecoveryRecipientCmd(cmd)
@@ -56,8 +56,8 @@ func NewCmd() *Cmd {
 func (cmd *Cmd) Run(state *config.State) {
 	state.Config().VerifyConnectionConfig()
 
-	if cmd.versionCmd.Used {
-		cmd.versionCmd.run(state)
+	if cmd.infoCmd.Used {
+		cmd.infoCmd.run(state)
 	} else if cmd.unlockCmd.Used {
 		cmd.unlockCmd.run(state)
 	} else if cmd.lockCmd.Used {
@@ -71,19 +71,19 @@ func (cmd *Cmd) Run(state *config.State) {
 	}
 }
 
-type versionCmd struct {
+type infoCmd struct {
 	*flaggy.Subcommand
 	quiet bool
 }
 
-func newVersionCmd(parent *flaggy.Subcommand) *versionCmd {
-	vCmd := &versionCmd{
+func newInfoCmd(parent *flaggy.Subcommand) *infoCmd {
+	vCmd := &infoCmd{
 		quiet: false,
 	}
 
-	cmd := flaggy.NewSubcommand("version")
-	cmd.ShortName = "v"
-	cmd.Description = "Shows the current version of the remote store"
+	cmd := flaggy.NewSubcommand("info")
+	cmd.ShortName = "i"
+	cmd.Description = "Shows information about the remote store"
 
 	cmd.Bool(&vCmd.quiet, "q", "quiet", "Only print the version number")
 
@@ -94,26 +94,29 @@ func newVersionCmd(parent *flaggy.Subcommand) *versionCmd {
 	return vCmd
 }
 
-func (cmd *versionCmd) run(state *config.State) {
-	httpClient := httpclient.New(state.Config())
+func (cmd *infoCmd) run(state *config.State) {
+	storeInfo, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (*proto.StoreInfo, error) {
+			return c.GetInfo()
+		},
+	)
 
-	var response model.VersionResponse
-	err := httpClient.Get(model.PathGetVersion, &response)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get version")
+		log.Fatal().Err(err).Msg("Failed to get store info")
 	}
 
 	if cmd.quiet {
-		_, _ = os.Stdout.WriteString(response.Version)
+		_, _ = os.Stdout.WriteString(storeInfo.GetVersion())
 
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
 			println()
 		}
 	} else {
 		log.Info().Msg("Remote store info")
-		log.Info().Msgf("    Version: %s", response.Version)
-		log.Info().Msgf("    Locked: %v", response.IsVaultLocked)
-		log.Info().Msgf("    Production mode: %v", response.IsProduction)
+		log.Info().Msgf("    Version: %s", storeInfo.GetVersion())
+		log.Info().Msgf("    Locked: %v", storeInfo.GetIsVaultLocked())
+		log.Info().Msgf("    Production mode: %v", storeInfo.GetIsProduction())
 	}
 }
 
@@ -140,9 +143,13 @@ func (cmd *unlockCmd) run(state *config.State) {
 	passphrase := utils.AskForPassphrase()
 	defer passphrase.Destroy()
 
-	httpClient := httpclient.New(state.Config())
+	_, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (any, error) {
+			return nil, c.UnlockVault(&proto.AdminCredentials{Passphrase: passphrase.String()})
+		},
+	)
 
-	err := httpClient.Post(model.PathPostVaultUnlock, model.PassphraseRequest{Passphrase: passphrase.String()}, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to unlock remote store")
 	}
@@ -168,9 +175,13 @@ func newLockCmd(parent *flaggy.Subcommand) *lockCmd {
 }
 
 func (cmd *lockCmd) run(state *config.State) {
-	httpClient := httpclient.New(state.Config())
+	_, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (any, error) {
+			return nil, c.LockVault()
+		},
+	)
 
-	err := httpClient.Delete(model.PathDeleteVaultLock, "", nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to lock remote store")
 	}

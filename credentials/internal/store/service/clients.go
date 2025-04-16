@@ -17,19 +17,17 @@ package service
 
 import (
 	"crypto/rand"
-	"fmt"
+	"errors"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"unsafe"
 )
 
-func (s *State) CreateClientCredentials(request model.CreateClientCredentialsRequest) (*model.CreateClientCredentialsResponse, *model.ErrorResponse) {
-	err := s.vault.VerifyPassphrase(request.Passphrase)
+func (s *State) CreateClientCredentials(request *proto.ClientCreation) (*proto.ClientCredentials, error) {
+	err := s.vault.VerifyPassphrase(request.GetCredentials().Passphrase)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
 	randStr := rand.Text()
@@ -39,122 +37,44 @@ func (s *State) CreateClientCredentials(request model.CreateClientCredentialsReq
 
 	item, err := s.vault.CreateItem("CC[" + request.Description + "]")
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
 	err = s.vault.SetItemValue(item.Id, secretBuffer)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 
 	secret, err := s.vault.GetItem(item.Id)
 	if err != nil {
-		return nil, &model.ErrorResponse{Message: err.Error()}
+		return nil, err
 	}
 	defer secret.Destroy()
 
-	return &model.CreateClientCredentialsResponse{
-		ClientCredentialsRequest: model.ClientCredentialsRequest{
-			Id:     item.Id,
-			Secret: string(secret.Bytes()),
-		},
+	return &proto.ClientCredentials{
+		Id:     item.Id.String(),
+		Secret: string(secret.Bytes()),
 	}, nil
 }
 
-func (s *State) verifyClientCredentials(credentials model.ClientCredentialsRequest) *model.ErrorResponse {
+func (s *State) verifyClientCredentials(credentials *proto.ClientCredentials) error {
 	defer memguard.WipeBytes(*(*[]byte)(unsafe.Pointer(&credentials.Secret)))
 
-	item, err := s.vault.GetItem(credentials.Id)
+	itemId, err := uuid.Parse(credentials.Id)
 	if err != nil {
-		return &model.ErrorResponse{Message: "client credentials mismatch"}
+		return errors.New("client credentials mismatch")
+	}
+
+	item, err := s.vault.GetItem(itemId)
+	if err != nil {
+		return errors.New("client credentials mismatch")
 	}
 
 	defer item.Destroy()
 
 	if credentials.Secret != item.String() {
-		return &model.ErrorResponse{Message: "client credentials mismatch"}
+		return errors.New("client credentials mismatch")
 	}
 
 	return nil
-}
-
-func (s *State) verifyClientRemoteHost(itemId uuid.UUID, verificationId *uuid.UUID, remoteHost string) (uuid.UUID, *model.ErrorResponse) {
-	vaultItems := s.vault.Items()
-	var verificationItemId uuid.UUID
-	for _, item := range vaultItems {
-		if item.Description == "VI["+itemId.String()+"]" {
-			verificationItemId = item.Id
-		}
-	}
-
-	var err error
-	if verificationItemId == uuid.Nil {
-		var item *vault.Item
-		item, err = s.vault.CreateItem("VI[" + itemId.String() + "]")
-		if err != nil {
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		err = s.vault.SetItemValue(item.Id, memguard.NewBufferFromBytes([]byte(remoteHost)))
-		if err != nil {
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		verificationItemId = item.Id
-	} else {
-		if verificationId == nil {
-			log.Warn().Msg(fmt.Sprintf("No verification ID specified by %s while attempting to access %s", remoteHost, itemId))
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		if *verificationId != verificationItemId {
-			log.Warn().Msg(fmt.Sprintf("Mismatched verification ID specified by %s while attempting to access %s", remoteHost, itemId))
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		var checkRemoteHost *memguard.LockedBuffer
-		checkRemoteHost, err = s.vault.GetItem(*verificationId)
-		if err != nil {
-			log.Warn().Msg(fmt.Sprintf("Invalid verification ID specified by %s while attempting to access %s", remoteHost, itemId))
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		defer checkRemoteHost.Destroy()
-
-		if remoteHost != checkRemoteHost.String() {
-			log.Error().Msg(fmt.Sprintf("CRITICAL: %s attempted to use credentials of %s", remoteHost, checkRemoteHost.String()))
-			return uuid.Nil, &model.ErrorResponse{Message: "failed to verify client remote host"}
-		}
-
-		verificationItemId = *verificationId
-	}
-
-	return verificationItemId, nil
-}
-
-func (s *State) ClientReadVaultItem(request model.ClientReadVaultItemRequest, remoteHost string) (*model.ReadVaultItemResponse, *model.ErrorResponse) {
-	err := s.verifyClientCredentials(request.ClientCredentialsRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	verificationId, err := s.verifyClientRemoteHost(request.ItemId, request.VerificationId, remoteHost)
-	if err != nil {
-		return nil, err
-	}
-
-	itemValue, rawErr := s.vault.GetItem(request.ItemId)
-	if rawErr != nil {
-		return nil, &model.ErrorResponse{Message: "failed to read item"}
-	}
-
-	defer itemValue.Destroy()
-
-	itemBytes := make([]byte, len(itemValue.Bytes()))
-	copy(itemBytes, itemValue.Bytes())
-
-	return &model.ReadVaultItemResponse{
-		Value:          itemBytes,
-		VerificationId: &verificationId,
-	}, nil
 }

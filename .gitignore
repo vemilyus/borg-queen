@@ -27,3 +27,4 @@ go.work.sum
 *.pem
 *.tmp
 bin/
+*.pb.go

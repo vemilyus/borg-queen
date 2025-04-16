@@ -23,7 +23,7 @@ import (
 	"github.com/vemilyus/borg-queen/credentials/internal/logging"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/cert"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/handlers"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/server"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
 	"net"
@@ -89,7 +89,7 @@ func loadConfig(configPath string) *store.Config {
 }
 
 func startServer(state *service.State) {
-	engine := handlers.SetupEngine(state)
+	grpcServer := server.NewGrpcServer(state)
 
 	config := state.Config()
 
@@ -109,6 +109,7 @@ func startServer(state *service.State) {
 
 		tlsConfig := &tls.Config{
 			GetCertificate: certReloader.GetCertificate,
+			NextProtos:     []string{"h2"},
 		}
 
 		listener, err = tls.Listen("tcp", config.ListenAddress, tlsConfig)
@@ -126,7 +127,7 @@ func startServer(state *service.State) {
 
 	log.Info().Msgf("Listening on %s", config.ListenAddress)
 
-	err = engine.RunListener(listener)
+	err = grpcServer.Serve(listener)
 
 	log.Fatal().Err(err).Send()
 }

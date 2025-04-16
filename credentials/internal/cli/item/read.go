@@ -22,12 +22,11 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"golang.org/x/term"
 	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -71,30 +70,37 @@ func (cmd *listVaultItemsCmd) run(state *config.State) {
 		defer passphrase.Destroy()
 	}
 
-	httpClient := httpclient.New(state.Config())
+	items, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) ([]*proto.Item, error) {
+			search := &proto.ItemSearch{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+			}
 
-	var response model.ListVaultItemsResponse
-	err := httpClient.Post(model.PathGetItemList, model.ListVaultItemsRequest{
-		PassphraseRequest:   model.PassphraseRequest{Passphrase: passphrase.String()},
-		DescriptionContains: actualSearch,
-	}, &response)
+			if actualSearch != nil {
+				search.Query = *actualSearch
+			}
+
+			return c.ListVaultItems(search)
+		},
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to retrieve list of items")
 	}
 
-	log.Info().Msgf("Retrieved %d items", len(response.Items))
+	log.Info().Msgf("Retrieved %d items", len(items))
 	if actualSearch != nil {
 		log.Info().Msgf("Used search: %s", *actualSearch)
 	}
 
 	if cmd.idOnly {
-		for _, item := range response.Items {
-			fmt.Println(item.Id.String())
+		for _, item := range items {
+			fmt.Println(item.GetId())
 		}
 	} else {
-		for _, item := range response.Items {
-			fmt.Printf("%s\t%s\t%s\n", item.Id.String(), item.Description, item.ModifiedAt.Format(time.RFC3339))
+		for _, item := range items {
+			fmt.Printf("%s\t%s\t%s\n", item.GetId(), item.GetDescription(), time.UnixMilli(item.GetCreatedAt()).Format(time.RFC3339))
 		}
 	}
 }
@@ -126,13 +132,10 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 		log.Fatal().Err(err).Msg("Failed to parse item ID")
 	}
 
-	verificationId, err := loadVerificationId(state.ConfigDir(), itemId)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("Failed to load verification ID for item %s", itemId.String())
+	itemRequest := &proto.ItemRequest{
+		ItemId: itemId.String(),
 	}
 
-	var clientRequest *model.ClientReadVaultItemRequest
-	var adminRequest *model.ReadVaultItemRequest
 	if state.Config().SecureCredentials != nil {
 		clientId, err := uuid.Parse(state.Config().SecureCredentials.Id.String())
 		if err != nil {
@@ -141,14 +144,10 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 
 		defer memguard.WipeBytes(clientId[:])
 
-		clientRequest = &model.ClientReadVaultItemRequest{
-			ClientCredentialsRequest: model.ClientCredentialsRequest{
-				Id:     clientId,
-				Secret: state.Config().SecureCredentials.Secret.String(),
-			},
-			ItemId:         itemId,
-			VerificationId: verificationId,
-		}
+		itemRequest.Credentials = &proto.ItemRequest_Client{Client: &proto.ClientCredentials{
+			Id:     clientId.String(),
+			Secret: state.Config().SecureCredentials.Secret.String(),
+		}}
 	} else if state.Config().Credentials != nil {
 		clientId, err := uuid.Parse(state.Config().Credentials.Id)
 		if err != nil {
@@ -157,14 +156,10 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 
 		defer memguard.WipeBytes(clientId[:])
 
-		clientRequest = &model.ClientReadVaultItemRequest{
-			ClientCredentialsRequest: model.ClientCredentialsRequest{
-				Id:     clientId,
-				Secret: state.Config().Credentials.Secret,
-			},
-			ItemId:         itemId,
-			VerificationId: verificationId,
-		}
+		itemRequest.Credentials = &proto.ItemRequest_Client{Client: &proto.ClientCredentials{
+			Id:     clientId.String(),
+			Secret: state.Config().Credentials.Secret,
+		}}
 	} else {
 		log.Info().Msg("Reading vault item using passphrase")
 
@@ -174,37 +169,21 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 			defer passphrase.Destroy()
 		}
 
-		adminRequest = &model.ReadVaultItemRequest{
-			PassphraseRequest: model.PassphraseRequest{
-				Passphrase: passphrase.String(),
-			},
-			ItemId: itemId,
-		}
+		itemRequest.Credentials = &proto.ItemRequest_Admin{Admin: &proto.AdminCredentials{Passphrase: passphrase.String()}}
 	}
 
-	httpClient := httpclient.New(state.Config())
-
-	var readVaultItemResponse model.ReadVaultItemResponse
-	if clientRequest != nil {
-		log.Info().Msgf("Reading vault item %s using client credentials", itemId.String())
-
-		err = httpClient.Post(model.PathGetReadItem, clientRequest, &readVaultItemResponse)
-	} else {
-		err = httpClient.Post(model.PathGetItem, adminRequest, &readVaultItemResponse)
-	}
+	itemValue, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (*proto.ItemValue, error) {
+			return c.ReadVaultItem(itemRequest)
+		},
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to read item")
 	}
 
-	if clientRequest != nil && readVaultItemResponse.VerificationId != nil {
-		err = storeVerificationId(state.ConfigDir(), itemId, readVaultItemResponse.VerificationId.String())
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to store verification ID")
-		}
-	}
-
-	secret := memguard.NewBufferFromBytes(readVaultItemResponse.Value)
+	secret := memguard.NewBufferFromBytes(itemValue.GetValue())
 	defer secret.Destroy()
 
 	_, _ = os.Stdout.Write(secret.Bytes())
@@ -212,32 +191,4 @@ func (cmd *readVaultItemCmd) run(state *config.State) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		println()
 	}
-}
-
-func loadVerificationId(parentDir string, itemId uuid.UUID) (*uuid.UUID, error) {
-	finalPath := path.Join(parentDir, itemId.String()+".vid")
-	var err error
-	if _, err = os.Stat(finalPath); os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	verificationIdBytes, err := os.ReadFile(finalPath)
-	if err != nil {
-		return nil, err
-	}
-
-	idStr := strings.TrimSpace(string(verificationIdBytes))
-	verificationId, err := uuid.Parse(idStr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &verificationId, nil
-}
-
-func storeVerificationId(parentDir string, itemId uuid.UUID, verificationId string) error {
-	finalPath := path.Join(parentDir, itemId.String()+".vid")
-	return os.WriteFile(finalPath, []byte(verificationId), 0600)
 }

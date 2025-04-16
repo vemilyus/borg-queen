@@ -22,16 +22,18 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"os"
+	"path"
 	"unsafe"
 )
 
 type exportCmd struct {
 	*flaggy.Subcommand
-	pretty bool
+	pretty     bool
+	outputFile string
 }
 
 func newExportCmd(parent *flaggy.Subcommand) *exportCmd {
@@ -43,6 +45,7 @@ func newExportCmd(parent *flaggy.Subcommand) *exportCmd {
 	cmd.Description = "Exports the entire contents of the vault as JSON (DANGEROUS)"
 
 	cmd.Bool(&eCmd.pretty, "p", "pretty", "Pretty print the output")
+	cmd.String(&eCmd.outputFile, "o", "output", "Target file to store the output")
 
 	parent.AttachSubcommand(cmd, 1)
 
@@ -52,6 +55,10 @@ func newExportCmd(parent *flaggy.Subcommand) *exportCmd {
 }
 
 func (cmd *exportCmd) run(state *config.State) {
+	if cmd.outputFile == "" {
+		log.Fatal().Msg("Output file not specified")
+	}
+
 	log.Warn().Msg("Exporting the entire contents of the vault may potentially compromise\n  the security of your data.")
 	doExport, err := utils.PromptConfirm("Confirm exporting all vault contents", false)
 	if err != nil {
@@ -76,44 +83,46 @@ func (cmd *exportCmd) run(state *config.State) {
 		return
 	}
 
-	httpClient := httpclient.New(state.Config())
+	finalData, err := grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (*exportData, error) {
+			rawItems, err := c.ListVaultItems(&proto.ItemSearch{Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()}})
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to retrieve list of items")
+			}
 
-	var response model.ListVaultItemsResponse
-	err = httpClient.Post(model.PathGetItemList, model.ListVaultItemsRequest{
-		PassphraseRequest:   model.PassphraseRequest{Passphrase: passphrase.String()},
-		DescriptionContains: nil,
-	}, &response)
+			log.Info().Msgf("Retrieved %d items", len(rawItems))
 
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to retrieve list of items")
-	}
+			var exportItems []*exportItem
+			for _, rawItem := range rawItems {
+				value, err := c.ReadVaultItem(&proto.ItemRequest{
+					Credentials: &proto.ItemRequest_Admin{Admin: &proto.AdminCredentials{Passphrase: passphrase.String()}},
+					ItemId:      rawItem.GetId(),
+				})
 
-	log.Info().Msgf("Retrieved %d items", len(response.Items))
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Failed to read item %s for export", rawItem.Id)
+				}
 
-	var values []*exportItem
-	var readVaultItemResponse model.ReadVaultItemResponse
-	for _, item := range response.Items {
-		err = httpClient.Post(model.PathGetItem, model.ReadVaultItemRequest{
-			PassphraseRequest: model.PassphraseRequest{
-				Passphrase: passphrase.String(),
-			},
-			ItemId: item.Id,
-		}, &readVaultItemResponse)
+				strVal := string(value.Value)
+				descriptionStr := rawItem.GetDescription()
 
-		if err != nil {
-			log.Fatal().Err(err).Msgf("Failed to retrieve item %s for export", item.Id)
-		}
+				idVal, err := uuid.Parse(rawItem.GetId())
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Failed to parse id %s", rawItem.GetId())
+				}
 
-		strVal := string(readVaultItemResponse.Value)
+				exportItems = append(exportItems, &exportItem{
+					Description: &descriptionStr,
+					Id:          idVal,
+					Value:       &strVal,
+				})
+			}
 
-		values = append(values, &exportItem{
-			Description: &item.Description,
-			Id:          item.Id,
-			Value:       &strVal,
-		})
-	}
+			return &exportData{Items: exportItems}, nil
+		},
+	)
 
-	finalData := exportData{values}
 	defer finalData.wipe()
 
 	var marshalled []byte
@@ -125,8 +134,34 @@ func (cmd *exportCmd) run(state *config.State) {
 
 	defer memguard.WipeBytes(marshalled)
 
-	_, _ = os.Stdout.Write(marshalled)
-	_, _ = os.Stdout.Write([]byte{'\n'})
+	err = os.MkdirAll(path.Dir(cmd.outputFile), 0700)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create output directory")
+	}
+
+	if stat, _ := os.Stat(cmd.outputFile); stat != nil {
+		doOverwrite, err := utils.PromptConfirm("Output file already exists, overwrite?", true)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to confirm overwriting")
+		}
+
+		if !doOverwrite {
+			log.Fatal().Msg("Output file already exists, user aborted")
+			return
+		}
+	}
+
+	file, err := os.OpenFile(cmd.outputFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create output file")
+	}
+
+	_, err = file.Write(marshalled)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to write output file")
+	}
+
+	log.Info().Msgf("Export complete: %s", cmd.outputFile)
 }
 
 type exportData struct {

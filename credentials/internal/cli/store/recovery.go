@@ -20,9 +20,9 @@ import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/httpclient"
+	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
 	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/model"
+	"github.com/vemilyus/borg-queen/credentials/internal/proto"
 	"os"
 )
 
@@ -80,14 +80,15 @@ func (cmd *setRecoveryRecipientCmd) run(state *config.State) {
 	passphrase := utils.AskForPassphrase()
 	defer passphrase.Destroy()
 
-	httpClient := httpclient.New(state.Config())
-
-	err = httpClient.Post(model.PathPostVaultRecoveryRecipient, model.SetRecoveryRecipientRequest{
-		PassphraseRequest: model.PassphraseRequest{
-			Passphrase: passphrase.String(),
+	_, err = grpcclient.Run(
+		state.Config(),
+		func(c grpcclient.GrpcClient) (any, error) {
+			return nil, c.SetRecoveryRecipient(&proto.RecoveryRecipient{
+				Credentials: &proto.AdminCredentials{Passphrase: passphrase.String()},
+				Recipient:   identity.Recipient().String(),
+			})
 		},
-		Recipient: identity.Recipient().String(),
-	}, nil)
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to set recovery recipient")
