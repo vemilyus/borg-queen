@@ -45,7 +45,8 @@ jobs:
         run: |
           case ${{ github.ref_name }} in
             v*)
-              export VERSION=${{ github.ref_name }}
+              VERSION=${{ github.ref_name }}
+              export VERSION=${VERSION#"v"}}
               ;;
             *)
               export VERSION=snapshot-${{ github.sha }}
