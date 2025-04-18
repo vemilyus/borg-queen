@@ -56,6 +56,7 @@ func NewServer(state *service.State) (*Server, error) {
 		}
 
 		listener, err = tls.Listen("tcp", config.ListenAddress, tlsConfig)
+		listener = NewSecureListener(listener)
 	} else {
 		listener, err = net.Listen("tcp", config.ListenAddress)
 	}
