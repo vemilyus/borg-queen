@@ -19,11 +19,11 @@ import (
 	"github.com/awnumar/memguard"
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
-	"github.com/vemilyus/borg-queen/credentials/internal/logging"
-	"github.com/vemilyus/borg-queen/credentials/internal/store"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/server"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+	"github.com/vemilyus/borg-collective/credentials/internal/logging"
+	"github.com/vemilyus/borg-collective/credentials/internal/store"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/server"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/service"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/vault"
 )
 
 var (

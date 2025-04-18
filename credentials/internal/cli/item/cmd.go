@@ -17,7 +17,7 @@ package item
 
 import (
 	"github.com/integrii/flaggy"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/config"
 )
 
 type Cmd struct {

@@ -20,8 +20,8 @@ import (
 	"filippo.io/age"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+	"github.com/vemilyus/borg-collective/credentials/internal/proto"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/vault"
 )
 
 func (s *State) SetRecoveryRecipient(request *proto.RecoveryRecipient) error {

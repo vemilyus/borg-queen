@@ -1,11 +1,11 @@
-# borg-queen
+# borg-collective
 
-> [![build status](https://github.com/vemilyus/borg-queen/actions/workflows/build.yml/badge.svg)][actions-url]
-> [![Latest Release](https://img.shields.io/github/v/release/vemilyus/borg-queen)][release-url]
+> [![build status](https://github.com/vemilyus/borg-collective/actions/workflows/build.yml/badge.svg)][actions-url]
+> [![Latest Release](https://img.shields.io/github/v/release/vemilyus/borg-collective)][release-url]
 
-[actions-url]: https://github.com/vemilyus/borg-queen/actions
+[actions-url]: https://github.com/vemilyus/borg-collective/actions
 
-[release-url]: https://github.com/vemilyus/borg-queen/releases/latest
+[release-url]: https://github.com/vemilyus/borg-collective/releases/latest
 
 Helps to setup and control as many Borg backups as possible with minimal configuration.
 
@@ -22,7 +22,7 @@ Helps to setup and control as many Borg backups as possible with minimal configu
 
 ## Tools
 
-### [`borg-queen`](./borg-queen)
+### [`borg-collective`](borg-collective)
 
 Configures any backups as detected or specified in configuration files on an individual host.
 
@@ -32,7 +32,7 @@ Securely manages and provides secure values over the network.
 
 ### [`cred`](./credentials/cmd/cli)
 
-Interacts with `credstore` on the individual hosts. Mainly used by `borg-queen` to retrieve
+Interacts with `credstore` on the individual hosts. Mainly used by `borg-collective` to retrieve
 encryption keys for borg backups as needed.
 
 `cred` and `credstore` are tightly coupled and communicate via gRPC to keep network overhead

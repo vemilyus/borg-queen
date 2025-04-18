@@ -18,8 +18,8 @@ package server
 import (
 	"crypto/tls"
 	"errors"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/cert"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/cert"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/service"
 	"google.golang.org/grpc"
 	"net"
 )

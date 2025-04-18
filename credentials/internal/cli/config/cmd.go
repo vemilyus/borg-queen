@@ -18,8 +18,8 @@ package config
 import (
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/conn"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/conn"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/utils"
 	"strconv"
 )
 

@@ -31,14 +31,14 @@ var (
 			keyring.KeyCtlBackend,
 			keyring.WinCredBackend,
 		},
-		ServiceName:                    "borg-queen-credentials",
-		KeychainName:                   "borg-queen-credentials",
+		ServiceName:                    "borg-collective-credentials",
+		KeychainName:                   "borg-collective-credentials",
 		KeychainTrustApplication:       true,
 		KeychainSynchronizable:         false,
 		KeychainAccessibleWhenUnlocked: false,
-		KWalletAppID:                   "borg-queen-credentials",
-		KWalletFolder:                  "borg-queen-credentials",
-		WinCredPrefix:                  "borg-queen-credentials",
+		KWalletAppID:                   "borg-collective-credentials",
+		KWalletFolder:                  "borg-collective-credentials",
+		WinCredPrefix:                  "borg-collective-credentials",
 	}
 
 	create    sync.Once

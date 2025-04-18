@@ -19,10 +19,10 @@ import (
 	"filippo.io/age"
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/config"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/grpcclient"
-	"github.com/vemilyus/borg-queen/credentials/internal/cli/utils"
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/config"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/grpcclient"
+	"github.com/vemilyus/borg-collective/credentials/internal/cli/utils"
+	"github.com/vemilyus/borg-collective/credentials/internal/proto"
 	"os"
 )
 

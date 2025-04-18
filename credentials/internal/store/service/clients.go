@@ -20,7 +20,7 @@ import (
 	"errors"
 	"github.com/awnumar/memguard"
 	"github.com/google/uuid"
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
+	"github.com/vemilyus/borg-collective/credentials/internal/proto"
 	"unsafe"
 )
 

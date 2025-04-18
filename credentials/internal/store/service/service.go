@@ -16,9 +16,9 @@
 package service
 
 import (
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
-	"github.com/vemilyus/borg-queen/credentials/internal/store"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
+	"github.com/vemilyus/borg-collective/credentials/internal/proto"
+	"github.com/vemilyus/borg-collective/credentials/internal/store"
+	"github.com/vemilyus/borg-collective/credentials/internal/store/vault"
 )
 
 type State struct {

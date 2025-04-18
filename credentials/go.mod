@@ -1,4 +1,4 @@
-module github.com/vemilyus/borg-queen/credentials
+module github.com/vemilyus/borg-collective/credentials
 
 go 1.24.1
 

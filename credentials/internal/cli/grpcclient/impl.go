@@ -18,7 +18,7 @@ package grpcclient
 import (
 	"context"
 	"errors"
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
+	"github.com/vemilyus/borg-collective/credentials/internal/proto"
 	"google.golang.org/grpc/status"
 	"io"
 )
