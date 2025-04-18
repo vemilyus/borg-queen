@@ -16,17 +16,14 @@
 package main
 
 import (
-	"crypto/tls"
 	"github.com/awnumar/memguard"
 	"github.com/integrii/flaggy"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-queen/credentials/internal/logging"
 	"github.com/vemilyus/borg-queen/credentials/internal/store"
-	"github.com/vemilyus/borg-queen/credentials/internal/store/cert"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/server"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/vault"
-	"net"
 )
 
 var (
@@ -53,14 +50,29 @@ func main() {
 		log.Fatal().Err(err).Send()
 	}
 
-	stateInstance := service.NewState(
+	state := service.NewState(
 		config,
 		vaultInstance,
 		version,
 		prod,
 	)
 
-	startServer(stateInstance)
+	srv, err := server.NewServer(state)
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
+
+	if prod {
+		log.Info().Msg("Running in production mode")
+	}
+
+	log.Info().Msgf("Listening on %s", config.ListenAddress)
+
+	err = srv.Serve()
+
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
 }
 
 func parseArgs() {
@@ -86,48 +98,4 @@ func loadConfig(configPath string) *store.Config {
 	}
 
 	return config
-}
-
-func startServer(state *service.State) {
-	grpcServer := server.NewGrpcServer(state)
-
-	config := state.Config()
-
-	var listener net.Listener
-	var err error
-
-	if prod {
-		if config.Tls == nil {
-			log.Fatal().Msg("TLS configuration is not set")
-		}
-
-		var certReloader *cert.X509KeyPairReloader
-		certReloader, err = cert.NewX509KeyPairReloader(config.Tls.CertFile, config.Tls.KeyFile)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to load TLS certificate")
-		}
-
-		tlsConfig := &tls.Config{
-			GetCertificate: certReloader.GetCertificate,
-			NextProtos:     []string{"h2"},
-		}
-
-		listener, err = tls.Listen("tcp", config.ListenAddress, tlsConfig)
-	} else {
-		listener, err = net.Listen("tcp", config.ListenAddress)
-	}
-
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
-
-	if prod {
-		log.Info().Msg("Running in production mode")
-	}
-
-	log.Info().Msgf("Listening on %s", config.ListenAddress)
-
-	err = grpcServer.Serve(listener)
-
-	log.Fatal().Err(err).Send()
 }

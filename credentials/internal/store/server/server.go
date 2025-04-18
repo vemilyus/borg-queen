@@ -16,160 +16,64 @@
 package server
 
 import (
-	"context"
+	"crypto/tls"
 	"errors"
-	"fmt"
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"github.com/vemilyus/borg-queen/credentials/internal/proto"
+	"github.com/vemilyus/borg-queen/credentials/internal/store/cert"
 	"github.com/vemilyus/borg-queen/credentials/internal/store/service"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"net"
 )
 
-type credStoreServer struct {
-	proto.UnimplementedCredStoreServer
-	state *service.State
+type Server struct {
+	*grpc.Server
+	net.Listener
 }
 
-func (serv credStoreServer) GetInfo(_ context.Context, _ *proto.Unit) (*proto.StoreInfo, error) {
-	return serv.state.StoreInfo(), nil
-}
-
-func (serv credStoreServer) UnlockVault(_ context.Context, credentials *proto.AdminCredentials) (*proto.Unit, error) {
-	if err := serv.state.Unlock(credentials); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+func NewServer(state *service.State) (*Server, error) {
+	server := &Server{
+		Server: NewGrpcServer(state),
 	}
 
-	return &proto.Unit{}, nil
-}
+	config := state.Config()
 
-func (serv credStoreServer) LockVault(_ context.Context, _ *proto.Unit) (*proto.Unit, error) {
-	ok := serv.state.Lock()
-	if !ok {
-		log.Debug().Msg("failed to lock vault")
-	}
+	var listener net.Listener
+	var err error
 
-	return &proto.Unit{}, nil
-}
+	if state.IsProduction() {
+		if config.Tls == nil {
+			return nil, errors.New("TLS configuration is not set")
+		}
 
-func (serv credStoreServer) SetRecoveryRecipient(_ context.Context, recipient *proto.RecoveryRecipient) (*proto.Unit, error) {
-	if err := serv.state.SetRecoveryRecipient(recipient); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return &proto.Unit{}, nil
-}
-
-func (serv credStoreServer) CreateVaultItem(_ context.Context, creation *proto.ItemCreation) (*proto.Item, error) {
-	item, err := serv.state.CreateVaultItem(creation)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return item, nil
-}
-
-func (serv credStoreServer) ListVaultItems(search *proto.ItemSearch, itemStream grpc.ServerStreamingServer[proto.Item]) error {
-	items, err := serv.state.ListVaultItems(search)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-
-	for _, item := range items {
-		err = itemStream.Send(
-			&proto.Item{
-				Id:          item.Id.String(),
-				Description: item.Description,
-				Checksum:    item.Checksum,
-				CreatedAt:   item.ModifiedAt.UnixMilli(),
-			},
-		)
-
+		var certReloader *cert.X509KeyPairReloader
+		certReloader, err = cert.NewX509KeyPairReloader(config.Tls.CertFile, config.Tls.KeyFile)
 		if err != nil {
-			return status.Error(codes.Internal, err.Error())
+			return nil, errors.New("Failed to load TLS certificate: " + err.Error())
 		}
-	}
 
-	return nil
-}
-
-func (serv credStoreServer) DeleteVaultItems(deletion *proto.ItemDeletion, itemStream grpc.ServerStreamingServer[proto.Item]) error {
-	deletedIds, err := serv.state.DeleteVaultItems(deletion)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-
-	for _, id := range deletedIds {
-		err = itemStream.Send(&proto.Item{
-			Id: id.String(),
-		})
-
-		if err != nil {
-			return status.Error(codes.Internal, err.Error())
+		tlsConfig := &tls.Config{
+			GetCertificate: certReloader.GetCertificate,
+			NextProtos:     []string{"h2"},
 		}
+
+		listener, err = tls.Listen("tcp", config.ListenAddress, tlsConfig)
+	} else {
+		listener, err = net.Listen("tcp", config.ListenAddress)
 	}
 
-	return nil
-}
-
-func (serv credStoreServer) ReadVaultItem(_ context.Context, request *proto.ItemRequest) (*proto.ItemValue, error) {
-	itemValue, err := serv.state.ReadVaultItem(request)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, err
 	}
 
-	return itemValue, nil
+	server.Listener = listener
+
+	return server, nil
 }
 
-func (serv credStoreServer) CreateClientCredentials(_ context.Context, creation *proto.ClientCreation) (*proto.ClientCredentials, error) {
-	credentials, err := serv.state.CreateClientCredentials(creation)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return credentials, nil
+func (s *Server) Serve() error {
+	return s.Server.Serve(s.Listener)
 }
 
-func NewGrpcServer(state *service.State) *grpc.Server {
-	logger := log.Logger
-
-	var loggingOpts []logging.Option
-	loggingOpts = append(loggingOpts, logging.WithLogOnEvents(logging.StartCall, logging.FinishCall))
-
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(logging.UnaryServerInterceptor(interceptorLogger(logger), loggingOpts...)),
-		grpc.ChainStreamInterceptor(logging.StreamServerInterceptor(interceptorLogger(logger), loggingOpts...)),
-	)
-
-	proto.RegisterCredStoreServer(
-		grpcServer,
-		credStoreServer{
-			UnimplementedCredStoreServer: proto.UnimplementedCredStoreServer{},
-			state:                        state,
-		},
-	)
-
-	return grpcServer
-}
-
-func interceptorLogger(l zerolog.Logger) logging.Logger {
-	return logging.LoggerFunc(func(ctx context.Context, level logging.Level, msg string, fields ...any) {
-		l := l.With().Fields(fields).Logger()
-
-		switch level {
-		case logging.LevelDebug:
-			l.Debug().Msg(msg)
-		case logging.LevelInfo:
-			l.Info().Msg(msg)
-		case logging.LevelWarn:
-			l.Warn().Msg(msg)
-		case logging.LevelError:
-			l.Error().Msg(msg)
-		default:
-			l.Warn().Err(errors.New(fmt.Sprintf("unknown level: %v", level))).Msg(msg)
-		}
-	})
+func (s *Server) Close() {
+	defer func() { _ = s.Listener.Close() }()
+	s.Server.GracefulStop()
 }

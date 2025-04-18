@@ -43,7 +43,7 @@ func InitLogging(prod bool) {
 	}
 
 	if prod {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
 	initLogging(logWriter)
