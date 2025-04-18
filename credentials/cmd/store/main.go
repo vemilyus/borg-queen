@@ -44,6 +44,7 @@ func main() {
 
 	vaultInstance, err := vault.NewVault(&vault.Options{
 		Backend: vault.NewLocalStorageBackend(config.StoragePath),
+		Secure:  prod,
 	})
 
 	if err != nil {

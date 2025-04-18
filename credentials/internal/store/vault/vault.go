@@ -32,8 +32,11 @@ import (
 	"unsafe"
 )
 
+const sentinel = "sentinel"
+
 type Options struct {
 	Backend
+	Secure bool
 }
 
 type Item struct {
@@ -96,13 +99,16 @@ func (v *Vault) Unlock(passphrase string) error {
 	}
 
 	passphraseBytes := *(*[]byte)(unsafe.Pointer(&passphrase))
-	rawSum := sha256.Sum256(passphraseBytes)
+	hasher := sha256.New()
+	hasher.Write(passphraseBytes)
+	if v.Options().Secure {
+		hasher.Write([]byte(sentinel))
+	}
+
+	rawSum := hasher.Sum(nil)
 	memguard.WipeBytes(passphraseBytes)
 
-	v.identityKey = func() *memguard.Enclave {
-		defer wipeSum(rawSum)
-		return memguard.NewEnclave(rawSum[:])
-	}()
+	v.identityKey = memguard.NewEnclave(rawSum)
 
 	identityBytes, err := v.backend().ReadFile(".identity")
 	if err != nil {
@@ -183,13 +189,16 @@ func (v *Vault) VerifyPassphrase(passphrase string) error {
 	}
 
 	passphraseBytes := *(*[]byte)(unsafe.Pointer(&passphrase))
-	rawSum := sha256.Sum256(passphraseBytes)
+	hasher := sha256.New()
+	hasher.Write(passphraseBytes)
+	if v.Options().Secure {
+		hasher.Write([]byte(sentinel))
+	}
+
+	rawSum := hasher.Sum(nil)
 	memguard.WipeBytes(passphraseBytes)
 
-	checkKey := func() *memguard.LockedBuffer {
-		defer wipeSum(rawSum)
-		return memguard.NewBufferFromBytes(rawSum[:])
-	}()
+	checkKey := memguard.NewBufferFromBytes(rawSum)
 
 	defer checkKey.Destroy()
 
