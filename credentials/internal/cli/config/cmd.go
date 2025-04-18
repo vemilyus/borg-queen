@@ -95,6 +95,23 @@ func (cmd *Cmd) Run(state *State) {
 		state.config.StorePort = nil
 	}
 
+	isProd, err := checkIfProd(state.config)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to check whether store is in production mode")
+	}
+
+	if !isProd {
+		doProceed, err := utils.PromptConfirm("Store isn't running in production mode, do you want to proceed?", false)
+		if err != nil {
+			log.Fatal().Err(err).Send()
+		}
+
+		if !doProceed {
+			log.Info().Msg("Store isn't running in production mode, user aborted")
+			return
+		}
+	}
+
 	err = Store(&state.configDir, *state.config)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to store configuration")
