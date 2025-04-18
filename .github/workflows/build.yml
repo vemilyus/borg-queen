@@ -46,14 +46,14 @@ jobs:
           case ${{ github.ref_name }} in
             v*)
               VERSION=${{ github.ref_name }}
-              export VERSION=${VERSION#"v"}}
+              export VERSION=${VERSION#"v"}
               ;;
             *)
               export VERSION=snapshot-${{ github.sha }}
           esac
           
           if [[ ${{ matrix.goarch }} == "arm" ]]; then
-            suffix_arch=arm7l
+            suffix_arch=armv7l
           else
             suffix_arch=${{ matrix.goarch }}
           fi
