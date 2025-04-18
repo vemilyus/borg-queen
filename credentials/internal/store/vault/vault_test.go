@@ -33,7 +33,7 @@ func TestNewVault(t *testing.T) {
 	tempDir := t.TempDir()
 	// Test successful creation of a new vault
 	vault, err := NewVault(&Options{
-		StoragePath: tempDir,
+		Backend: NewLocalStorageBackend(tempDir),
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, vault)
@@ -41,34 +41,41 @@ func TestNewVault(t *testing.T) {
 
 	// Check if the necessary directories were created
 	identityPath := filepath.Join(tempDir, ".identity")
-	backupPath := filepath.Join(tempDir, ".bak")
 
 	_, err = os.Stat(identityPath)
 	assert.True(t, os.IsNotExist(err), "Identity file should not exist yet")
-
-	_, err = os.Stat(backupPath)
-	assert.NoError(t, err, "Backup directory should be created")
 }
 
 func TestNewVault_ErrorCreatingStoragePath(t *testing.T) {
 	// Attempt to create a vault with an invalid storage path
 	vault, err := NewVault(&Options{
-		StoragePath: "/invalid/path/to/storage", // Invalid path
+		Backend: NewLocalStorageBackend("/invalid/path/to/storage"), // Invalid path
 	})
 	assert.Error(t, err)
 	assert.Nil(t, vault)
 }
 
-//goland:noinspection GoRedundantConversion
-func TestUnlock(t *testing.T) {
+func TestUnlock_Local(t *testing.T) {
 	// Create a new vault
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
+	testUnlock(t, vault)
+}
+
+func TestUnlock_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testUnlock(t, vault)
+}
+
+//goland:noinspection GoRedundantConversion
+func testUnlock(t *testing.T, vault *Vault) {
 	// Test unlocking with the correct passphrase
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 	assert.False(t, vault.IsLocked())        // Vault should be unlocked
 	assert.NotNil(t, vault.primaryRecipient) // Primary recipient should be set
@@ -103,17 +110,28 @@ func TestUnlock(t *testing.T) {
 	assert.Nil(t, vault.primaryRecipient) // Primary recipient should be nil
 }
 
-func TestVerifyPassphrase(t *testing.T) {
+func TestVerifyPassphrase_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
+	testVerifyPassphrase(t, vault)
+}
+
+func TestVerifyPassphrase_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testVerifyPassphrase(t, vault)
+}
+
+func testVerifyPassphrase(t *testing.T, vault *Vault) {
 	// Define a passphrase
 	// Unlock the vault with the correct passphrase
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Test verifying the passphrase with the correct passphrase
@@ -139,7 +157,7 @@ func TestVerifyPassphrase(t *testing.T) {
 func TestVerifyPassphrase_EmptyPassphrase(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
@@ -156,16 +174,27 @@ func TestVerifyPassphrase_EmptyPassphrase(t *testing.T) {
 	assert.Error(t, err) // Should return an error for empty passphrase
 }
 
-func TestSetRecoveryRecipient(t *testing.T) {
+func TestSetRecoveryRecipient_Local(t *testing.T) {
 	// Create a new vault
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
+	testSetRecoveryRecipient(t, vault)
+}
+
+func TestSetRecoveryRecipient_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testSetRecoveryRecipient(t, vault)
+}
+
+func testSetRecoveryRecipient(t *testing.T, vault *Vault) {
 	// Define a valid passphrase and unlock the vault
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Create a new recovery recipient
@@ -192,14 +221,27 @@ func TestSetRecoveryRecipient(t *testing.T) {
 	assert.Equal(t, recoveryIdentity.Recipient(), vault.recoveryRecipient)
 }
 
-func TestCreateItem(t *testing.T) {
+func TestCreateItem_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
+
+	testCreateItem(t, vault)
+}
+
+func TestCreateItem_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testCreateItem(t, vault)
+}
+
+func testCreateItem(t *testing.T, vault *Vault) {
+
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Test creating an item
@@ -212,14 +254,26 @@ func TestCreateItem(t *testing.T) {
 	assert.Equal(t, 1, len(vault.items))               // There should be one item in the vault
 }
 
-func TestDeleteItem(t *testing.T) {
+func TestDeleteItem_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
+
+	testDeleteItem(t, vault)
+}
+
+func TestDeleteItem_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testDeleteItem(t, vault)
+}
+
+func testDeleteItem(t *testing.T, vault *Vault) {
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Create an item to delete
@@ -237,14 +291,26 @@ func TestDeleteItem(t *testing.T) {
 	assert.NoError(t, err) // Should not return an error
 }
 
-func TestGetItem(t *testing.T) {
+func TestGetItem_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
+
+	testGetItem(t, vault)
+}
+
+func TestGetItem_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testGetItem(t, vault)
+}
+
+func testGetItem(t *testing.T, vault *Vault) {
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Create an item
@@ -264,15 +330,26 @@ func TestGetItem(t *testing.T) {
 	assert.Nil(t, retrievedItem) // Should be nil
 }
 
-func TestSetItemValue(t *testing.T) {
+func TestSetItemValue_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
+	testSetItemValue(t, vault)
+}
+
+func TestSetItemValue_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testSetItemValue(t, vault)
+}
+
+func testSetItemValue(t *testing.T, vault *Vault) {
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Create an item
@@ -294,8 +371,7 @@ func TestSetItemValue(t *testing.T) {
 	assert.Equal(t, "test value", string(retrievedValue.Bytes())) // Check the value
 
 	// Verify that the value is stored in encrypted form on disk
-	valuePath := vault.valuePath(*item)
-	encryptedData, err := os.ReadFile(valuePath)
+	encryptedData, err := vault.backend().ReadFile(valuePath(*item))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, encryptedData) // Ensure that the file is not empty
 
@@ -303,15 +379,26 @@ func TestSetItemValue(t *testing.T) {
 	assert.NotEqual(t, "test value", string(encryptedData)) // Ensure the stored data is not plain text
 }
 
-func TestWriteItemValue(t *testing.T) {
+func TestWriteItemValue_Local(t *testing.T) {
 	// Create a new vault and unlock it
 	vault, err := NewVault(&Options{
-		StoragePath: t.TempDir(),
+		Backend: NewLocalStorageBackend(t.TempDir()),
 	})
 	assert.NoError(t, err)
 
+	testWriteItemValue(t, vault)
+}
+
+func TestWriteItemValue_InMemory(t *testing.T) {
+	vault, err := NewVault(&Options{Backend: &inMemoryBackend{}})
+	assert.NoError(t, err)
+
+	testWriteItemValue(t, vault)
+}
+
+func testWriteItemValue(t *testing.T, vault *Vault) {
 	//goland:noinspection GoRedundantConversion
-	err = vault.Unlock(string([]byte("correct_passphrase")))
+	err := vault.Unlock(string([]byte("correct_passphrase")))
 	assert.NoError(t, err)
 
 	// Create an item
@@ -330,8 +417,7 @@ func TestWriteItemValue(t *testing.T) {
 	assert.Equal(t, "test value", string(retrievedValue.Bytes())) // Check the value
 
 	// Verify that the value is stored in encrypted form on disk
-	valuePath := vault.valuePath(*item)
-	encryptedData, err := os.ReadFile(valuePath)
+	encryptedData, err := vault.backend().ReadFile(valuePath(*item))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, encryptedData) // Ensure that the file is not empty
 

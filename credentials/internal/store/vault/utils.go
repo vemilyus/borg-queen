@@ -31,33 +31,35 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
-func loadRecoveryRecipient(path string) (*age.X25519Recipient, error) {
-	recBytes, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
+func loadRecoveryRecipient(backend Backend) (*age.X25519Recipient, error) {
+	recBytes, err := backend.ReadFile(".recovery")
+	if err != nil {
 		return nil, err
+	} else if recBytes == nil {
+		return nil, nil
 	}
 
 	return age.ParseX25519Recipient(string(recBytes))
 }
 
-func writeRecoveryRecipient(path string, recipient age.X25519Recipient) error {
+func writeRecoveryRecipient(backend Backend, recipient age.X25519Recipient) error {
 	recBytes := []byte(recipient.String())
 
-	return os.WriteFile(path, recBytes, 0700)
+	return backend.WriteFile(".recovery", recBytes)
 }
 
-func readIdentity(identityFile string, identityKey *memguard.LockedBuffer) (*age.X25519Identity, error) {
-	cryptBytes, err := os.ReadFile(identityFile)
+func readIdentity(backend Backend, identityKey *memguard.LockedBuffer) (*age.X25519Identity, error) {
+	cryptBytes, err := backend.ReadFile(".identity")
 	if err != nil {
 		return nil, err
+	} else if cryptBytes == nil {
+		panic(errors.New("identity file not found"))
 	}
 
 	c, err := aes.NewCipher(identityKey.Bytes())
@@ -94,7 +96,7 @@ func deriveMetadataHmacSecret(identity age.X25519Identity) *memguard.Enclave {
 	return memguard.NewEnclave(rawHmacSecret[:])
 }
 
-func writeIdentity(identityFile string, identityKey *memguard.LockedBuffer, identity *age.X25519Identity) error {
+func writeIdentity(backend Backend, identityKey *memguard.LockedBuffer, identity *age.X25519Identity) error {
 	identityString := identity.String()
 	identityBytes := *(*[]byte)(unsafe.Pointer(&identityString))
 	defer memguard.WipeBytes(identityBytes)
@@ -120,11 +122,11 @@ func writeIdentity(identityFile string, identityKey *memguard.LockedBuffer, iden
 	result = append(result, nonce...)
 	result = append(result, cryptBytes...)
 
-	return os.WriteFile(identityFile, result, 0600)
+	return backend.WriteFile(".identity", result)
 }
 
-func readAllMetadataUnsafe(storagePath string, hmacSecret *memguard.LockedBuffer) (map[uuid.UUID]Item, error) {
-	listing, err := os.ReadDir(storagePath)
+func readAllMetadataUnsafe(backend Backend, hmacSecret *memguard.LockedBuffer) (map[uuid.UUID]Item, error) {
+	listing, err := backend.ListFiles("")
 	if err != nil {
 		return nil, fmt.Errorf("error reading directory: %w", err)
 	}
@@ -132,11 +134,10 @@ func readAllMetadataUnsafe(storagePath string, hmacSecret *memguard.LockedBuffer
 	items := make(map[uuid.UUID]Item)
 
 	for _, entry := range listing {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			metadataFile := filepath.Join(storagePath, entry.Name())
-			metadata, err := readItemMetadataUnsafe(metadataFile, hmacSecret)
+		if filepath.Ext(entry) == ".json" {
+			metadata, err := readItemMetadataUnsafe(backend, entry, hmacSecret)
 			if err != nil {
-				log.Warn().Err(err).Str("source", metadataFile).Msg("error reading item metadata")
+				log.Warn().Err(err).Str("source", entry).Msg("error reading item metadata")
 				continue
 			}
 
@@ -147,10 +148,12 @@ func readAllMetadataUnsafe(storagePath string, hmacSecret *memguard.LockedBuffer
 	return items, nil
 }
 
-func readItemMetadataUnsafe(metadataPath string, hmacSecret *memguard.LockedBuffer) (*Item, error) {
-	metadataBytes, err := os.ReadFile(metadataPath)
+func readItemMetadataUnsafe(backend Backend, path string, hmacSecret *memguard.LockedBuffer) (*Item, error) {
+	metadataBytes, err := backend.ReadFile(path)
 	if err != nil {
 		return nil, err
+	} else if metadataBytes == nil {
+		return nil, errors.New("metadata file not found: " + path)
 	}
 
 	h := hmac.New(sha256.New, hmacSecret.Bytes())
@@ -166,14 +169,14 @@ func readItemMetadataUnsafe(metadataPath string, hmacSecret *memguard.LockedBuff
 		return nil, err
 	}
 
-	if filepath.Base(metadataPath) != metadata.Id.String()+".json" {
+	if path != metadataPath(metadata) {
 		return nil, errors.New("metadata path doesn't match item id: " + metadata.Id.String())
 	}
 
 	return &metadata, nil
 }
 
-func writeItemMetadataUnsafe(metadataPath string, item Item, hmacSecret *memguard.LockedBuffer) error {
+func writeItemMetadataUnsafe(backend Backend, item Item, hmacSecret *memguard.LockedBuffer) error {
 	metadataBytes, err := json.Marshal(item)
 	if err != nil {
 		return err
@@ -186,26 +189,18 @@ func writeItemMetadataUnsafe(metadataPath string, item Item, hmacSecret *memguar
 	copy(result, metadataBytes)
 	copy(result[len(metadataBytes):], h.Sum(nil))
 
-	return os.WriteFile(metadataPath, result, 0600)
+	return backend.WriteFile(metadataPath(item), result)
 }
 
-func copyFile(src, dest string) error {
-	srcFile, err := os.Open(src)
+func copyFile(backend Backend, src, dest string) error {
+	srcBytes, err := backend.ReadFile(src)
 	if err != nil {
 		return err
+	} else if srcBytes == nil {
+		return fmt.Errorf("file does not exist: %s", src)
 	}
 
-	defer func() { _ = srcFile.Close() }()
-
-	destFile, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-
-	defer func() { _ = destFile.Close() }()
-
-	_, err = io.Copy(destFile, srcFile)
-	return err
+	return backend.WriteFile(dest, srcBytes)
 }
 
 func sum(data []byte) string {
@@ -232,4 +227,16 @@ func wipeBuffer(buf *bytes.Buffer, length int) {
 	}
 
 	runtime.KeepAlive(buf)
+}
+
+func backupPath(item Item) string {
+	return filepath.Join(".bak", fmt.Sprintf("%s.%d.json", item.Id.String(), time.Now().UnixMilli()))
+}
+
+func metadataPath(item Item) string {
+	return item.Id.String() + ".json"
+}
+
+func valuePath(item Item) string {
+	return item.Id.String() + ".age"
 }

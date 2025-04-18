@@ -26,8 +26,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"io"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -35,7 +33,7 @@ import (
 )
 
 type Options struct {
-	StoragePath string
+	Backend
 }
 
 type Item struct {
@@ -48,12 +46,15 @@ type Item struct {
 type Vault struct {
 	lock               sync.RWMutex
 	options            *Options
-	identityPath       string
 	identityKey        *memguard.Enclave
 	metadataHmacSecret *memguard.Enclave
 	primaryRecipient   *age.X25519Recipient
 	recoveryRecipient  *age.X25519Recipient
 	items              map[uuid.UUID]Item
+}
+
+func (v *Vault) backend() Backend {
+	return v.options.Backend
 }
 
 func (v *Vault) Options() *Options {
@@ -65,27 +66,19 @@ func (v *Vault) IsLocked() bool {
 }
 
 func NewVault(options *Options) (*Vault, error) {
-	err := os.MkdirAll(options.StoragePath, 0700)
+	err := options.Backend.Init()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage path (%s): %v", options.StoragePath, err)
+		return nil, fmt.Errorf("failed to initialize backend: %w", err)
 	}
 
-	backupPath := filepath.Join(options.StoragePath, ".bak")
-	err = os.MkdirAll(backupPath, 0700)
+	recoveryRecipient, err := loadRecoveryRecipient(options.Backend)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create backup path (%s): %v", backupPath, err)
-	}
-
-	recoveryRecipientPath := filepath.Join(options.StoragePath, ".recovery")
-	recoveryRecipient, err := loadRecoveryRecipient(recoveryRecipientPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load recovery recipient (%s): %v", recoveryRecipientPath, err)
+		return nil, fmt.Errorf("failed to load recovery recipient: %v", err)
 	}
 
 	return &Vault{
 		lock:               sync.RWMutex{},
 		options:            options,
-		identityPath:       filepath.Join(options.StoragePath, ".identity"),
 		identityKey:        nil,
 		metadataHmacSecret: nil,
 		primaryRecipient:   nil,
@@ -111,23 +104,29 @@ func (v *Vault) Unlock(passphrase string) error {
 		return memguard.NewEnclave(rawSum[:])
 	}()
 
-	var err error
-	identityFile := filepath.Join(v.options.StoragePath, ".identity")
-	if _, err = os.Stat(identityFile); err == nil {
+	identityBytes, err := v.backend().ReadFile(".identity")
+	if err != nil {
+		v.identityKey = nil
+
+		log.Error().Err(err).Msg("failed to read identity file")
+		return errors.New("failed to verify passphrase")
+	} else if identityBytes != nil {
+		memguard.WipeBytes(identityBytes)
+
 		identityKey, _ := v.identityKey.Open()
 		defer identityKey.Destroy()
 
-		identity, err := readIdentity(identityFile, identityKey)
+		identity, err := readIdentity(v.backend(), identityKey)
 		if err != nil {
 			v.identityKey = nil
 
-			log.Error().Err(err).Str("source", identityFile).Msg("failed to read identity file")
+			log.Error().Err(err).Msg("failed to read identity file")
 			return errors.New("failed to verify passphrase")
 		}
 
 		v.metadataHmacSecret = deriveMetadataHmacSecret(*identity)
 		v.primaryRecipient = identity.Recipient()
-	} else if os.IsNotExist(err) {
+	} else {
 		identity, err := age.GenerateX25519Identity()
 		if err != nil {
 			v.identityKey = nil
@@ -139,19 +138,14 @@ func (v *Vault) Unlock(passphrase string) error {
 		identityKey, _ := v.identityKey.Open()
 		defer identityKey.Destroy()
 
-		err = writeIdentity(identityFile, identityKey, identity)
+		err = writeIdentity(v.backend(), identityKey, identity)
 		if err != nil {
-			log.Err(err).Str("target", identityFile).Msg("failed to write identity")
+			log.Err(err).Msg("failed to write identity")
 			return errors.New("failed to verify passphrase")
 		}
 
 		v.metadataHmacSecret = deriveMetadataHmacSecret(*identity)
 		v.primaryRecipient = identity.Recipient()
-	} else {
-		v.identityKey = nil
-
-		log.Error().Err(err).Str("source", identityFile).Msg("failed to stat identity file")
-		return errors.New("failed to verify passphrase")
 	}
 
 	metadataHmacSecret, err := v.metadataHmacSecret.Open()
@@ -166,7 +160,7 @@ func (v *Vault) Unlock(passphrase string) error {
 
 	defer metadataHmacSecret.Destroy()
 
-	v.items, err = readAllMetadataUnsafe(v.options.StoragePath, metadataHmacSecret)
+	v.items, err = readAllMetadataUnsafe(v.backend(), metadataHmacSecret)
 	if err != nil {
 		v.identityKey = nil
 		v.metadataHmacSecret = nil
@@ -254,15 +248,14 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 
 	defer metadataHmacSecret.Destroy()
 
-	recoveryRecipientPath := filepath.Join(v.options.StoragePath, ".recovery")
-	if err := writeRecoveryRecipient(recoveryRecipientPath, recipient); err != nil {
-		log.Error().Err(err).Str("target", recoveryRecipientPath).Msg("failed to write recovery recipient")
+	if err := writeRecoveryRecipient(v.backend(), recipient); err != nil {
+		log.Error().Err(err).Msg("failed to write recovery recipient")
 
 		if v.recoveryRecipient != nil {
 			for i := 0; i < 3; i++ {
 				time.Sleep(time.Second)
 
-				err = writeRecoveryRecipient(recoveryRecipientPath, *v.recoveryRecipient)
+				err = writeRecoveryRecipient(v.backend(), *v.recoveryRecipient)
 				if err == nil {
 					break
 				}
@@ -278,7 +271,7 @@ func (v *Vault) SetRecoveryRecipient(recipient age.X25519Recipient) error {
 
 	v.recoveryRecipient = &recipient
 
-	items, err := readAllMetadataUnsafe(v.options.StoragePath, metadataHmacSecret)
+	items, err := readAllMetadataUnsafe(v.backend(), metadataHmacSecret)
 	metadataHmacSecret.Destroy()
 
 	if err != nil {
@@ -330,9 +323,8 @@ func (v *Vault) CreateItem(description string) (*Item, error) {
 
 	defer metadataHmacSecret.Destroy()
 
-	metadataPath := v.metadataPath(item)
-	if err := writeItemMetadataUnsafe(metadataPath, item, metadataHmacSecret); err != nil {
-		log.Error().Err(err).Str("target", metadataPath).Msg("failed to write item metadata")
+	if err = writeItemMetadataUnsafe(v.backend(), item, metadataHmacSecret); err != nil {
+		log.Error().Err(err).Str("item", item.Id.String()).Msg("failed to write item metadata")
 		return nil, errors.New("failed to create item")
 	}
 
@@ -408,9 +400,11 @@ func (v *Vault) WriteItemValue(id uuid.UUID, r io.Reader) error {
 }
 
 func (v *Vault) readItemValueUnsafe(item Item) (*memguard.LockedBuffer, error) {
-	ageBytes, err := os.ReadFile(v.valuePath(item))
+	ageBytes, err := v.backend().ReadFile(valuePath(item))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read item value (%s): %v", item.Id, err)
+	} else if ageBytes == nil {
+		return nil, errors.New("item value file not found: " + item.Id.String())
 	}
 
 	value, err := v.decryptFromRestUnsafe(ageBytes)
@@ -433,11 +427,11 @@ func (v *Vault) writeItemValueUnsafe(item Item, value *memguard.LockedBuffer) er
 		return fmt.Errorf("failed to encrypt item value (%s): %v", item.Id, err)
 	}
 
-	valuePath := v.valuePath(item)
+	vPath := valuePath(item)
 
 	if item.Checksum != "" {
-		backupPath := v.backupPath(item)
-		if err := copyFile(valuePath, backupPath); err != nil {
+		bPath := backupPath(item)
+		if err := copyFile(v.backend(), vPath, bPath); err != nil {
 			return fmt.Errorf("failed to create backup of previous value (%s): %v", item.Id, err)
 		}
 	}
@@ -446,7 +440,7 @@ func (v *Vault) writeItemValueUnsafe(item Item, value *memguard.LockedBuffer) er
 	item.Checksum = checksum
 	item.ModifiedAt = time.Now()
 
-	err = os.WriteFile(valuePath, ageBytes, 0600)
+	err = v.backend().WriteFile(valuePath(item), ageBytes)
 	if err != nil {
 		return fmt.Errorf("failed to write item value (%s): %v", item.Id, err)
 	}
@@ -459,7 +453,7 @@ func (v *Vault) writeItemValueUnsafe(item Item, value *memguard.LockedBuffer) er
 
 	defer metadataHmacSecret.Destroy()
 
-	err = writeItemMetadataUnsafe(v.metadataPath(item), item, metadataHmacSecret)
+	err = writeItemMetadataUnsafe(v.backend(), item, metadataHmacSecret)
 	if err != nil {
 		return fmt.Errorf("failed to write item metadata (%s): %v", item.Id, err)
 	}
@@ -479,32 +473,24 @@ func (v *Vault) deleteItemUnsafe(id uuid.UUID) bool {
 
 	removed := false
 
-	metadataPath := v.metadataPath(item)
-	if _, err := os.Stat(metadataPath); err == nil {
-		err = os.Remove(metadataPath)
-		if err != nil {
-			log.Debug().
-				Err(err).
-				Str("item", item.Id.String()).
-				Str("target", metadataPath).
-				Msg("failed to delete item metadata file")
-		} else {
-			removed = true
-		}
+	ok, err := v.backend().DeleteFile(metadataPath(item))
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("item", item.Id.String()).
+			Msg("failed to delete item metadata file")
+	} else if ok {
+		removed = true
 	}
 
-	valuePath := v.valuePath(item)
-	if _, err := os.Stat(valuePath); err == nil {
-		err = os.Remove(valuePath)
-		if err != nil {
-			log.Debug().
-				Err(err).
-				Str("item", item.Id.String()).
-				Str("target", valuePath).
-				Msg("failed to delete item value file")
-		} else {
-			removed = true
-		}
+	ok, err = v.backend().DeleteFile(valuePath(item))
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("item", item.Id.String()).
+			Msg("failed to delete item value file")
+	} else if ok {
+		removed = true
 	}
 
 	if removed {
@@ -518,7 +504,7 @@ func (v *Vault) decryptFromRestUnsafe(data []byte) (*memguard.LockedBuffer, erro
 	identityKey, _ := v.identityKey.Open()
 	defer identityKey.Destroy()
 
-	identity, err := readIdentity(v.identityPath, identityKey)
+	identity, err := readIdentity(v.backend(), identityKey)
 	if err != nil {
 		log.Fatal().Err(err).Msg("error reading identity")
 	}
@@ -565,16 +551,4 @@ func (v *Vault) encryptForRestUnsafe(data *memguard.LockedBuffer) ([]byte, error
 	}
 
 	return out.Bytes(), nil
-}
-
-func (v *Vault) backupPath(item Item) string {
-	return filepath.Join(v.options.StoragePath, ".bak", fmt.Sprintf("%s.%d.json", item.Id.String(), time.Now().UnixMilli()))
-}
-
-func (v *Vault) metadataPath(item Item) string {
-	return filepath.Join(v.options.StoragePath, item.Id.String()+".json")
-}
-
-func (v *Vault) valuePath(item Item) string {
-	return filepath.Join(v.options.StoragePath, item.Id.String()+".age")
 }

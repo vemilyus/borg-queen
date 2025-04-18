@@ -46,7 +46,7 @@ func main() {
 	config := loadConfig(configPath)
 
 	vaultInstance, err := vault.NewVault(&vault.Options{
-		StoragePath: config.StoragePath,
+		Backend: vault.NewLocalStorageBackend(config.StoragePath),
 	})
 
 	if err != nil {
