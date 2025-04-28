@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 	"os/exec"
@@ -132,6 +133,49 @@ func NewExecAction(command []string) Action {
 		id:      rand.Text(),
 		command: command,
 	}
+}
+
+type SequenceAction struct {
+	id      string
+	actions []Action
+}
+
+func (s *SequenceAction) Id() string {
+	return s.id
+}
+
+func (s *SequenceAction) Execute() error {
+	if len(s.actions) == 0 {
+		return fmt.Errorf("sequence action %s has no actions", s.id)
+	}
+
+	for _, action := range s.actions {
+		err := action.Execute()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SequenceAction) SetId(id string) {
+	s.id = id
+	for _, action := range s.actions {
+		action.SetId(id)
+	}
+}
+
+func NewSequenceAction() *SequenceAction {
+	return &SequenceAction{
+		id:      rand.Text(),
+		actions: make([]Action, 5),
+	}
+}
+
+func (s *SequenceAction) Push(action Action) *SequenceAction {
+	s.actions = append(s.actions, action)
+	return s
 }
 
 type ComposedAction struct {

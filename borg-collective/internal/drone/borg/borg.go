@@ -17,11 +17,14 @@ package borg
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"github.com/Masterminds/semver/v3"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 	"github.com/vemilyus/borg-collective/internal/drone"
+	"io"
+	"os/exec"
 )
 
 var (
@@ -99,6 +102,106 @@ func (b *Borg) ScheduleBackups(backups []drone.BackupConfig, scheduler *cron.Cro
 }
 
 func (b *Borg) buildBackupAction(backup drone.BackupConfig) (Action, error) {
+	if backup.Exec == nil && backup.Paths == nil {
+		return nil, fmt.Errorf("backup specifies neither exec nor paths: %s", backup.Name)
+	}
+
+	var delegate Action
+	var err error
+
+	if backup.Exec != nil {
+		delegate, err = b.buildExecAction(backup.Name, *backup.Exec)
+	} else {
+		delegate, err = b.BuildArchivePathsAction(backup.Name, backup.Paths.Paths)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	result := NewComposedAction(delegate)
+	if backup.PreCommand != nil && len(backup.PreCommand) > 0 {
+		result.Pre(NewExecAction(backup.PreCommand))
+	}
+
+	if backup.PostCommand != nil && len(backup.PostCommand) > 0 {
+		result.Post(NewExecAction(backup.PostCommand))
+	}
+
+	if backup.FinallyCommand != nil && len(backup.FinallyCommand) > 0 {
+		result.Finally(NewExecAction(backup.FinallyCommand))
+	}
+
+	return result, nil
+}
+
+func (b *Borg) buildExecAction(baseName string, backup drone.ExecBackupConfig) (Action, error) {
+	if backup.Command == nil || len(backup.Command) == 0 {
+		return nil, errors.New("exec backup has no command")
+	}
+
+	actualStdout := false
+	if backup.Stdout != nil {
+		actualStdout = *backup.Stdout
+	}
+
+	if actualStdout {
+		return b.BuildArchiveStdoutAction(
+			baseName,
+			func() (io.Reader, error, chan error) {
+				cmd := exec.Command(backup.Command[0], backup.Command[1:]...)
+				stdout, err := cmd.StdoutPipe()
+				if err != nil {
+					return nil, err, nil
+				}
+
+				errChan := make(chan error, 1)
+
+				go func() {
+					err = cmd.Wait()
+					errChan <- err
+				}()
+
+				return stdout, nil, errChan
+			},
+		)
+	} else {
+		if backup.Paths == nil || len(backup.Paths) == 0 {
+			return nil, errors.New("exec backup defines no paths")
+		}
+
+		result := NewSequenceAction()
+		result.Push(NewExecAction(backup.Command))
+
+		backupAction, err := b.BuildArchivePathsAction(baseName, backup.Paths)
+		if err != nil {
+			return nil, err
+		}
+
+		result.Push(backupAction)
+
+		return result, nil
+	}
+}
+
+func (b *Borg) BuildArchiveStdoutAction(baseName string, stdout func() (io.Reader, error, chan error)) (Action, error) {
+	return &closureAction{
+		id: rand.Text(),
+		action: func() error {
+			stdout, err, errChan := stdout()
+			if err != nil {
+				return err
+			}
+
+			
+
+			// TODO
+			return nil
+		},
+	}, nil
+}
+
+func (b *Borg) BuildArchivePathsAction(baseName string, sourcePaths []string) (Action, error) {
 	// TODO
 	return nil, nil
 }

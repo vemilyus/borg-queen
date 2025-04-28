@@ -60,7 +60,7 @@ func main() {
 
 func parseArgs() {
 	flaggy.SetName("borgd")
-	flaggy.SetDescription("Schedules and runs borg backups")
+	flaggy.SetDescription("Schedules and controls the execution of borg backups")
 	flaggy.SetVersion(version)
 
 	flaggy.AddPositionalValue(&configPath, "CONFIG-PATH", 1, true, "Path to the configuration file")

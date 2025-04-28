@@ -17,6 +17,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/rs/zerolog/log"
@@ -24,11 +25,17 @@ import (
 	"strings"
 )
 
-func Run(command []string, env map[string]string, stdin *bytes.Reader, result any) (returnCode ReturnCode, logMessages []LogMessage, err error) {
+func Run(ctx context.Context, command []string, env map[string]string, stdin *bytes.Reader, result any) (returnCode ReturnCode, logMessages []LogMessage, err error) {
 	finalCommand := []string{"--log-json"}
 	finalCommand = append(finalCommand, command...)
 
-	cmd := exec.Command("borg", finalCommand...)
+	var cmd *exec.Cmd
+	if ctx != nil {
+		cmd = exec.CommandContext(ctx, "borg", finalCommand...)
+	} else {
+		cmd = exec.Command("borg", finalCommand...)
+	}
+
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}

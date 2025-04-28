@@ -58,7 +58,7 @@ func (b *Borg) runInfo() (api.InfoListOutput, error) {
 	args = append(args, b.config.Repo.Location)
 
 	var info api.InfoListOutput
-	returnCode, logMessages, err := api.Run(args, b.env(), nil, &info)
+	returnCode, logMessages, err := api.Run(nil, args, b.env(), nil, &info)
 	if err != nil {
 		return api.InfoListOutput{}, fmt.Errorf("failed to run borg info: %w", err)
 	}
@@ -77,7 +77,7 @@ func (b *Borg) runInit() error {
 	args = b.setRsh(args)
 	args = append(args, b.config.Repo.Location)
 
-	returnCode, logMessages, err := api.Run(args, b.env(), nil, nil)
+	returnCode, logMessages, err := api.Run(nil, args, b.env(), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to run borg init: %w", err)
 	}
@@ -90,7 +90,7 @@ func (b *Borg) runCompact() error {
 	args = b.setRsh(args)
 	args = append(args, b.config.Repo.Location)
 
-	returnCode, logMessages, err := api.Run(args, b.env(), nil, nil)
+	returnCode, logMessages, err := api.Run(nil, args, b.env(), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to run borg compact: %w", err)
 	}
