@@ -21,11 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/rs/zerolog/log"
+	"io"
 	"os/exec"
 	"strings"
 )
 
-func Run(ctx context.Context, command []string, env map[string]string, stdin *bytes.Reader, result any) (returnCode ReturnCode, logMessages []LogMessage, err error) {
+func Run(ctx context.Context, command []string, env map[string]string, input io.Reader, result any) (returnCode ReturnCode, logMessages []LogMessage, err error) {
 	finalCommand := []string{"--log-json"}
 	finalCommand = append(finalCommand, command...)
 
@@ -36,8 +37,8 @@ func Run(ctx context.Context, command []string, env map[string]string, stdin *by
 		cmd = exec.Command("borg", finalCommand...)
 	}
 
-	if stdin != nil {
-		cmd.Stdin = stdin
+	if input != nil {
+		cmd.Stdin = input
 	}
 
 	finalEnv := cmd.Env
@@ -68,6 +69,10 @@ func Run(ctx context.Context, command []string, env map[string]string, stdin *by
 		stdout, err = cmd.Output()
 	} else {
 		err = cmd.Run()
+	}
+
+	if ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+		return -1, nil, ctx.Err()
 	}
 
 	if err != nil {

@@ -16,7 +16,9 @@
 package borg
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Masterminds/semver/v3"
@@ -25,6 +27,8 @@ import (
 	"github.com/vemilyus/borg-collective/internal/drone"
 	"io"
 	"os/exec"
+	"regexp"
+	"time"
 )
 
 var (
@@ -60,7 +64,7 @@ func New(config *drone.Config) (*Borg, error) {
 func (b *Borg) Compact() Action {
 	return &closureAction{
 		id: fmt.Sprintf("compact-%s", rand.Text()),
-		action: func() error {
+		action: func(Action) error {
 			return b.runCompact()
 		},
 	}
@@ -159,7 +163,9 @@ func (b *Borg) buildExecAction(baseName string, backup drone.ExecBackupConfig) (
 
 				go func() {
 					err = cmd.Wait()
-					errChan <- err
+					if err != nil {
+						errChan <- err
+					}
 				}()
 
 				return stdout, nil, errChan
@@ -187,21 +193,74 @@ func (b *Borg) buildExecAction(baseName string, backup drone.ExecBackupConfig) (
 func (b *Borg) BuildArchiveStdoutAction(baseName string, stdout func() (io.Reader, error, chan error)) (Action, error) {
 	return &closureAction{
 		id: rand.Text(),
-		action: func() error {
-			stdout, err, errChan := stdout()
+		action: func(self Action) error {
+			input, err, errChan := stdout()
 			if err != nil {
 				return err
 			}
 
-			
+			ctx, cancelContext := context.WithCancel(context.Background())
+			defer cancelContext()
 
-			// TODO
-			return nil
+			done := make(chan error, 1)
+
+			go func() {
+				stats, err := b.runCreateWithInput(ctx, CreateArchiveName(baseName), input)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					}
+				} else {
+					infoJson, _ := json.Marshal(stats)
+
+					log.Info().
+						Str("actionId", self.Id()).
+						RawJSON("info", infoJson).
+						Msg("borg execution succeeded")
+				}
+
+				done <- err
+			}()
+
+			select {
+			case err = <-errChan:
+				cancelContext()
+				return fmt.Errorf("process creating backup data failed: %w", err)
+			case err = <-done:
+				return err
+			}
 		},
 	}, nil
 }
 
 func (b *Borg) BuildArchivePathsAction(baseName string, sourcePaths []string) (Action, error) {
-	// TODO
-	return nil, nil
+	if len(sourcePaths) == 0 {
+		return nil, fmt.Errorf("no paths specified for backup %s", baseName)
+	}
+
+	return &closureAction{
+		id: rand.Text(),
+		action: func(self Action) error {
+			stats, err := b.runCreateWithPaths(CreateArchiveName(baseName), sourcePaths)
+			if err != nil {
+				return err
+			}
+
+			infoJson, _ := json.Marshal(stats)
+
+			log.Info().
+				Str("actionId", self.Id()).
+				RawJSON("info", infoJson).
+				Msg("borg execution succeeded")
+
+			return nil
+		},
+	}, nil
+}
+
+var normalizationRegexp = regexp.MustCompile("[^_a-zA-Z0-9]+")
+
+func CreateArchiveName(baseName string) string {
+	normalizedName := normalizationRegexp.ReplaceAllString(baseName, "_")
+	return fmt.Sprintf("%s-%s", normalizedName, time.Now().Format("20060102150405"))
 }

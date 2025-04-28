@@ -16,10 +16,14 @@
 package borg
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/Masterminds/semver/v3"
 	"github.com/vemilyus/borg-collective/internal/drone/borg/api"
+	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -83,6 +87,50 @@ func (b *Borg) runInit() error {
 	}
 
 	return api.HandleBorgReturnCode(returnCode, logMessages)
+}
+
+func (b *Borg) runCreateWithPaths(archiveName string, paths []string) (api.CreateOutput, error) {
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			return api.CreateOutput{}, fmt.Errorf("path %s is not an absolute path", path)
+		}
+	}
+
+	args := []string{"create", "--json", "--compression", "zlib,6"}
+	args = b.setRsh(args)
+	args = append(args, fmt.Sprintf("%s::%s", b.config.Repo.Location, archiveName))
+	args = append(args, paths...)
+
+	var stats api.CreateOutput
+	returnCode, logMessages, err := api.Run(nil, args, b.env(), nil, &stats)
+	if err != nil {
+		return api.CreateOutput{}, fmt.Errorf("failed to run borg create with paths: %w", err)
+	}
+
+	return stats, api.HandleBorgReturnCode(returnCode, logMessages)
+}
+
+func (b *Borg) runCreateWithInput(ctx context.Context, archiveName string, input io.Reader) (api.CreateOutput, error) {
+	if input == nil {
+		panic("input cannot be nil")
+	}
+
+	args := []string{"create", "--json", "--compression", "zlib,6"}
+	args = b.setRsh(args)
+	args = append(args, fmt.Sprintf("%s::%s", b.config.Repo.Location, archiveName))
+	args = append(args, "-")
+
+	var stats api.CreateOutput
+	returnCode, logMessages, err := api.Run(ctx, args, b.env(), input, &stats)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return api.CreateOutput{}, err
+		}
+
+		return api.CreateOutput{}, fmt.Errorf("failed to run borg create with stdin: %w", err)
+	}
+
+	return stats, api.HandleBorgReturnCode(returnCode, logMessages)
 }
 
 func (b *Borg) runCompact() error {

@@ -27,7 +27,7 @@ import (
 
 type Action interface {
 	Id() string
-	Execute() error
+	Execute(self Action) error
 
 	SetId(id string)
 }
@@ -37,7 +37,7 @@ type actionJob struct {
 }
 
 func (a actionJob) Run() {
-	_ = a.action.Execute()
+	_ = a.action.Execute(a.action)
 }
 
 func Wrap(a Action) cron.Job {
@@ -46,17 +46,17 @@ func Wrap(a Action) cron.Job {
 
 type closureAction struct {
 	id     string
-	action func() error
+	action func(self Action) error
 }
 
 func (c *closureAction) Id() string {
 	return c.id
 }
 
-func (c *closureAction) Execute() error {
+func (c *closureAction) Execute(self Action) error {
 	log.Info().Str("actionId", c.id).Msg("executing closure action")
 
-	err := c.action()
+	err := c.action(self)
 	if err != nil {
 		log.Warn().
 			Err(err).
@@ -82,11 +82,11 @@ func (e *execAction) Id() string {
 	return e.id
 }
 
-func (e *execAction) Execute() error {
+func (e *execAction) Execute(self Action) error {
 	var stderr bytes.Buffer
 
 	log.Info().
-		Str("actionId", e.id).
+		Str("actionId", self.Id()).
 		Strs("command", e.command).
 		Msgf("executing %v", e.command[0])
 
@@ -98,7 +98,7 @@ func (e *execAction) Execute() error {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			log.Warn().
-				Str("actionId", e.id).
+				Str("actionId", self.Id()).
 				Strs("command", e.command).
 				Int("exit-code", exitErr.ExitCode()).
 				Str("stderr", stderr.String()).
@@ -106,7 +106,7 @@ func (e *execAction) Execute() error {
 		} else {
 			log.Warn().
 				Err(err).
-				Str("actionId", e.id).
+				Str("actionId", self.Id()).
 				Strs("command", e.command).
 				Msg("Error executing command")
 		}
@@ -115,7 +115,7 @@ func (e *execAction) Execute() error {
 	}
 
 	log.Info().
-		Str("actionId", e.id).
+		Str("actionId", self.Id()).
 		Strs("command", e.command).
 		Int("exit-code", cmd.ProcessState.ExitCode()).
 		Str("stdout", string(stdout)).
@@ -144,13 +144,13 @@ func (s *SequenceAction) Id() string {
 	return s.id
 }
 
-func (s *SequenceAction) Execute() error {
+func (s *SequenceAction) Execute(self Action) error {
 	if len(s.actions) == 0 {
 		return fmt.Errorf("sequence action %s has no actions", s.id)
 	}
 
 	for _, action := range s.actions {
-		err := action.Execute()
+		err := action.Execute(self)
 		if err != nil {
 			return err
 		}
@@ -190,7 +190,7 @@ func (c *ComposedAction) Id() string {
 	return c.id
 }
 
-func (c *ComposedAction) Execute() error {
+func (c *ComposedAction) Execute(self Action) error {
 	log.Info().Str("actionId", c.id).Msg("executing composed action")
 
 	if len(c.preActions) > 0 {
@@ -199,7 +199,7 @@ func (c *ComposedAction) Execute() error {
 
 	var err error
 	for _, preAction := range c.preActions {
-		err = preAction.Execute()
+		err = preAction.Execute(self)
 		if err != nil {
 			break
 		}
@@ -207,7 +207,7 @@ func (c *ComposedAction) Execute() error {
 
 	if err == nil {
 		log.Info().Str("actionId", c.id).Msg("executing action delegate")
-		err = c.delegate.Execute()
+		err = c.delegate.Execute(self)
 	}
 
 	if err == nil {
@@ -216,7 +216,7 @@ func (c *ComposedAction) Execute() error {
 		}
 
 		for _, postAction := range c.postActions {
-			err = postAction.Execute()
+			err = postAction.Execute(self)
 			if err != nil {
 				break
 			}
@@ -228,7 +228,7 @@ func (c *ComposedAction) Execute() error {
 	}
 
 	for _, finallyAction := range c.finallyActions {
-		fErr := finallyAction.Execute()
+		fErr := finallyAction.Execute(self)
 		if fErr != nil {
 			log.Debug().
 				Err(fErr).
